@@ -41,6 +41,9 @@ pub struct App {
     // Command registry
     pub command_registry: CommandRegistry,
 
+    // Model registry (name -> full filename path)
+    pub model_registry: std::collections::HashMap<String, String>,
+
     // Exit flag
     pub should_exit: bool,
 
@@ -49,7 +52,11 @@ pub struct App {
 }
 
 impl App {
-    pub fn new(model: String, temperature: f32) -> Self {
+    pub fn new(
+        model: String,
+        temperature: f32,
+        model_registry: std::collections::HashMap<String, String>,
+    ) -> Self {
         App {
             session: Session::new(model.clone(), temperature),
             current_model: model,
@@ -65,6 +72,7 @@ impl App {
             last_tps: 0.0,
             last_response_time: 0.0,
             command_registry: CommandRegistry::new(),
+            model_registry,
             should_exit: false,
             tick_count: 0,
         }

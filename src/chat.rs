@@ -26,8 +26,12 @@ pub async fn run_chat_mode(
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    // Create app state
-    let mut app = App::new(model_name.to_string(), config.temperature.default);
+    // Create app state with model registry
+    let mut app = App::new(
+        model_name.to_string(),
+        config.temperature.default,
+        config.models.registry.clone(),
+    );
 
     // Create event handler
     let event_handler = EventHandler::new();

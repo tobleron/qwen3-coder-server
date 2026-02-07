@@ -163,16 +163,44 @@ fn draw_modal_form(f: &mut Frame, area: Rect, app: &App) {
             match modal_type {
                 ModalType::ModelSelector => {
                     lines.push(Line::from(Span::styled(
-                        "Select model: ",
+                        "Select model:",
                         Style::default().fg(ORANGE),
                     )));
                     lines.push(Line::from(""));
-                    lines.push(Line::from(format!("  [1] {} ✓", app.current_model)));
-                    lines.push(Line::from("  [2] Other model 1"));
-                    lines.push(Line::from("  [3] Other model 2"));
+
+                    // Sort models by name for consistent display
+                    let mut models: Vec<_> = app.model_registry.iter().collect();
+                    models.sort_by(|a, b| a.0.cmp(b.0));
+
+                    if models.is_empty() {
+                        lines.push(Line::from(Span::styled(
+                            "  No models available",
+                            Style::default().fg(Color::DarkGray),
+                        )));
+                    } else {
+                        for (idx, (name, path)) in models.iter().enumerate() {
+                            let marker = if name.as_str() == app.current_model.as_str() {
+                                " ✓"
+                            } else {
+                                ""
+                            };
+                            let line_text = format!(
+                                "  [{}] {}{}\n      {}",
+                                idx + 1,
+                                name,
+                                marker,
+                                path
+                            );
+                            lines.push(Line::from(Span::styled(
+                                line_text,
+                                Style::default().fg(EMERALD),
+                            )));
+                        }
+                    }
+
                     lines.push(Line::from(""));
                     lines.push(Line::from(Span::styled(
-                        "  Enter number or type to search",
+                        "  Enter number to select",
                         Style::default().fg(Color::DarkGray).add_modifier(Modifier::DIM),
                     )));
                 }
