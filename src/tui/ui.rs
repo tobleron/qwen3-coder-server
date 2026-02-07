@@ -203,40 +203,51 @@ fn draw_modal_form(f: &mut Frame, area: Rect, app: &App, modal_type: &ModalType)
                 ))));
             } else {
                 for (idx, (name, path)) in models.iter().enumerate() {
+                    let is_selected = idx == app.selected_model_idx;
                     let is_current = name.as_str() == app.current_model.as_str();
 
-                    // Model number and name
-                    let name_line = Line::from(vec![
-                        Span::raw("  "),
-                        Span::styled(
-                            format!("{}  ", idx + 1),
-                            Style::default().fg(if is_current { ORANGE } else { EMERALD }),
-                        ),
-                        Span::styled(
-                            name.as_str(),
-                            Style::default()
-                                .fg(if is_current { ORANGE } else { EMERALD })
-                                .add_modifier(if is_current { Modifier::BOLD } else { Modifier::empty() }),
-                        ),
-                        Span::styled(
-                            if is_current { "  ✓" } else { "" },
-                            Style::default().fg(ORANGE),
-                        ),
-                    ]);
+                    // Model name with selection indicator
+                    let name_line = if is_selected {
+                        Line::from(vec![
+                            Span::raw("  "),
+                            Span::styled("▶ ", Style::default().fg(ORANGE)),
+                            Span::styled(
+                                name.as_str(),
+                                Style::default().fg(ORANGE).add_modifier(Modifier::BOLD),
+                            ),
+                            Span::styled(
+                                if is_current { "  ✓" } else { "" },
+                                Style::default().fg(ORANGE),
+                            ),
+                        ])
+                    } else {
+                        Line::from(vec![
+                            Span::raw("    "),
+                            Span::styled(
+                                name.as_str(),
+                                Style::default().fg(if is_current { ORANGE } else { EMERALD }),
+                            ),
+                            Span::styled(
+                                if is_current { "  ✓" } else { "" },
+                                Style::default().fg(ORANGE),
+                            ),
+                        ])
+                    };
                     items.push(ListItem::new(name_line));
 
                     // Full path in gray
-                    items.push(ListItem::new(Line::from(vec![
+                    let path_line = Line::from(vec![
                         Span::raw("     "),
                         Span::styled(path.as_str(), Style::default().fg(GRAY)),
-                    ])));
+                    ]);
+                    items.push(ListItem::new(path_line));
 
                     items.push(ListItem::new(Line::from("")));
                 }
             }
 
             items.push(ListItem::new(Line::from(Span::styled(
-                "  Type number to select  •  esc cancel",
+                "  ↑↓ navigate  •  enter select  •  esc cancel",
                 Style::default().fg(DARK_GRAY),
             ))));
         }

@@ -98,71 +98,76 @@ pub async fn run_chat_mode(
                         KeyCode::Enter => {
                             // Check if we're in a modal and handle modal submission
                             if let UIMode::Modal(ref modal_type) = app.mode.clone() {
-                                if let Some(input) = app.submit_input() {
-                                    match modal_type {
-                                        ModalType::ModelSelector => {
-                                            // User entered model number
-                                            if let Ok(num) = input.parse::<usize>() {
-                                                let mut models: Vec<_> = app.model_registry.keys().collect();
-                                                models.sort();
-                                                if num > 0 && num <= models.len() {
-                                                    let new_model = models[num - 1].clone();
-                                                    server.stop()?;
-                                                    server.ensure_running(config, Some(&new_model)).await?;
-                                                    app.current_model = new_model;
+                                match modal_type {
+                                    ModalType::ModelSelector => {
+                                        // Use arrow-key selected model
+                                        let mut models: Vec<_> = app.model_registry.keys().collect();
+                                        models.sort();
+                                        if app.selected_model_idx < models.len() {
+                                            let new_model = models[app.selected_model_idx].clone();
+                                            app.mode = UIMode::Chat; // Close modal
+                                            server.stop()?;
+                                            server.ensure_running(config, Some(&new_model)).await?;
+                                            app.current_model = new_model;
+                                        }
+                                    }
+                                    _ => {
+                                        // For other modals, use the text input
+                                        if let Some(input) = app.submit_input() {
+                                            match modal_type {
+                                                ModalType::SetTemperature => {
+                                                    if let Ok(temp) = input.parse::<f32>() {
+                                                        if temp >= 0.0 && temp <= 2.0 {
+                                                            app.temperature = temp;
+                                                        }
+                                                    }
                                                 }
-                                            }
-                                        }
-                                        ModalType::SetTemperature => {
-                                            if let Ok(temp) = input.parse::<f32>() {
-                                                if temp >= 0.0 && temp <= 2.0 {
-                                                    app.temperature = temp;
+                                                ModalType::DeleteMessage => {
+                                                    handle_command(
+                                                        format!("/delete {}", input),
+                                                        &mut app,
+                                                        server,
+                                                        config,
+                                                        client,
+                                                        event_tx.clone(),
+                                                    )
+                                                    .await?;
                                                 }
+                                                ModalType::SaveResponse => {
+                                                    handle_command(
+                                                        format!("/save {}", input),
+                                                        &mut app,
+                                                        server,
+                                                        config,
+                                                        client,
+                                                        event_tx.clone(),
+                                                    )
+                                                    .await?;
+                                                }
+                                                ModalType::RenameSession => {
+                                                    handle_command(
+                                                        format!("/rename {}", input),
+                                                        &mut app,
+                                                        server,
+                                                        config,
+                                                        client,
+                                                        event_tx.clone(),
+                                                    )
+                                                    .await?;
+                                                }
+                                                ModalType::LoadPrompt => {
+                                                    handle_command(
+                                                        format!("/prompt {}", input),
+                                                        &mut app,
+                                                        server,
+                                                        config,
+                                                        client,
+                                                        event_tx.clone(),
+                                                    )
+                                                    .await?;
+                                                }
+                                                _ => {}
                                             }
-                                        }
-                                        ModalType::DeleteMessage => {
-                                            handle_command(
-                                                format!("/delete {}", input),
-                                                &mut app,
-                                                server,
-                                                config,
-                                                client,
-                                                event_tx.clone(),
-                                            )
-                                            .await?;
-                                        }
-                                        ModalType::SaveResponse => {
-                                            handle_command(
-                                                format!("/save {}", input),
-                                                &mut app,
-                                                server,
-                                                config,
-                                                client,
-                                                event_tx.clone(),
-                                            )
-                                            .await?;
-                                        }
-                                        ModalType::RenameSession => {
-                                            handle_command(
-                                                format!("/rename {}", input),
-                                                &mut app,
-                                                server,
-                                                config,
-                                                client,
-                                                event_tx.clone(),
-                                            )
-                                            .await?;
-                                        }
-                                        ModalType::LoadPrompt => {
-                                            handle_command(
-                                                format!("/prompt {}", input),
-                                                &mut app,
-                                                server,
-                                                config,
-                                                client,
-                                                event_tx.clone(),
-                                            )
-                                            .await?;
                                         }
                                     }
                                 }

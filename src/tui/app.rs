@@ -30,6 +30,7 @@ pub struct App {
     pub command_search: String,
     pub scroll_offset: usize,
     pub selected_command_idx: usize,
+    pub selected_model_idx: usize,  // For model selector navigation
     pub modal_input: String,
 
     // Runtime state
@@ -66,6 +67,7 @@ impl App {
             command_search: String::new(),
             scroll_offset: 0,
             selected_command_idx: 0,
+            selected_model_idx: 0,
             modal_input: String::new(),
             is_loading: false,
             error_message: None,
@@ -90,6 +92,9 @@ impl App {
     }
 
     pub fn open_modal(&mut self, modal: ModalType) {
+        if matches!(modal, ModalType::ModelSelector) {
+            self.selected_model_idx = 0;
+        }
         self.mode = UIMode::Modal(modal);
         self.modal_input.clear();
     }
@@ -181,8 +186,11 @@ impl App {
             UIMode::CommandPalette => {
                 self.selected_command_idx = self.selected_command_idx.saturating_sub(1);
             }
+            UIMode::Modal(ModalType::ModelSelector) => {
+                self.selected_model_idx = self.selected_model_idx.saturating_sub(1);
+            }
             UIMode::Modal(_) => {
-                // No scrolling in modal
+                // No scrolling in other modals
             }
         }
     }
@@ -198,8 +206,14 @@ impl App {
                     self.selected_command_idx += 1;
                 }
             }
+            UIMode::Modal(ModalType::ModelSelector) => {
+                let count = self.model_registry.len();
+                if self.selected_model_idx < count.saturating_sub(1) {
+                    self.selected_model_idx += 1;
+                }
+            }
             UIMode::Modal(_) => {
-                // No scrolling in modal
+                // No scrolling in other modals
             }
         }
     }
