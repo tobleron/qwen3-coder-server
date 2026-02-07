@@ -1,6 +1,23 @@
 use crate::session::Session;
 use crate::commands::CommandRegistry;
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum UIMode {
+    Chat,
+    CommandPalette,
+    Modal(ModalType),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ModalType {
+    ModelSelector,
+    SetTemperature,
+    DeleteMessage,
+    SaveResponse,
+    RenameSession,
+    LoadPrompt,
+}
+
 pub struct App {
     // Session data
     pub session: Session,
@@ -8,10 +25,12 @@ pub struct App {
     pub temperature: f32,
 
     // UI state
-    pub drawer_open: bool,
+    pub mode: UIMode,
     pub input_buffer: String,
+    pub command_search: String,
     pub scroll_offset: usize,
-    pub selected_command: usize,
+    pub selected_command_idx: usize,
+    pub modal_input: String,
 
     // Runtime state
     pub is_loading: bool,
@@ -35,10 +54,12 @@ impl App {
             session: Session::new(model.clone(), temperature),
             current_model: model,
             temperature,
-            drawer_open: false,
+            mode: UIMode::Chat,
             input_buffer: String::new(),
+            command_search: String::new(),
             scroll_offset: 0,
-            selected_command: 0,
+            selected_command_idx: 0,
+            modal_input: String::new(),
             is_loading: false,
             error_message: None,
             last_tps: 0.0,
@@ -49,54 +70,128 @@ impl App {
         }
     }
 
-    pub fn toggle_drawer(&mut self) {
-        self.drawer_open = !self.drawer_open;
-        if self.drawer_open {
-            self.selected_command = 0;
-        }
+    pub fn open_command_palette(&mut self) {
+        self.mode = UIMode::CommandPalette;
+        self.command_search.clear();
+        self.selected_command_idx = 0;
+    }
+
+    pub fn close_command_palette(&mut self) {
+        self.mode = UIMode::Chat;
+        self.command_search.clear();
+    }
+
+    pub fn open_modal(&mut self, modal: ModalType) {
+        self.mode = UIMode::Modal(modal);
+        self.modal_input.clear();
+    }
+
+    pub fn close_modal(&mut self) {
+        self.mode = UIMode::Chat;
+        self.modal_input.clear();
     }
 
     pub fn handle_input_char(&mut self, c: char) {
-        if self.drawer_open {
-            // In drawer mode, arrow keys navigate commands
-            return;
+        match self.mode {
+            UIMode::Chat => {
+                self.input_buffer.push(c);
+            }
+            UIMode::CommandPalette => {
+                self.command_search.push(c);
+                self.selected_command_idx = 0; // Reset selection when searching
+            }
+            UIMode::Modal(_) => {
+                self.modal_input.push(c);
+            }
         }
-        self.input_buffer.push(c);
     }
 
     pub fn handle_backspace(&mut self) {
-        if !self.drawer_open {
-            self.input_buffer.pop();
+        match self.mode {
+            UIMode::Chat => {
+                self.input_buffer.pop();
+            }
+            UIMode::CommandPalette => {
+                self.command_search.pop();
+            }
+            UIMode::Modal(_) => {
+                self.modal_input.pop();
+            }
         }
     }
 
     pub fn submit_input(&mut self) -> Option<String> {
-        if self.drawer_open {
-            return None;
-        }
-        let input = self.input_buffer.trim().to_string();
-        if !input.is_empty() {
-            self.input_buffer.clear();
-            return Some(input);
+        match self.mode {
+            UIMode::Chat => {
+                let input = self.input_buffer.trim().to_string();
+                if !input.is_empty() {
+                    self.input_buffer.clear();
+                    return Some(input);
+                }
+            }
+            UIMode::CommandPalette => {
+                // User is selecting a command
+                let filtered = self.get_filtered_commands();
+                if self.selected_command_idx < filtered.len() {
+                    let cmd_name = filtered[self.selected_command_idx].name;
+                    self.close_command_palette();
+                    return Some(format!("/{}", cmd_name));
+                }
+            }
+            UIMode::Modal(_) => {
+                let input = self.modal_input.trim().to_string();
+                self.modal_input.clear();
+                if !input.is_empty() {
+                    self.close_modal();
+                    return Some(input);
+                }
+            }
         }
         None
     }
 
-    pub fn scroll_up(&mut self) {
-        if !self.drawer_open {
-            self.scroll_offset = self.scroll_offset.saturating_add(3);
+    pub fn get_filtered_commands(&self) -> Vec<&crate::commands::Command> {
+        if self.command_search.is_empty() {
+            self.command_registry.get_all_commands().iter().collect()
         } else {
-            self.selected_command = self.selected_command.saturating_sub(1);
+            self.command_registry
+                .get_all_commands()
+                .iter()
+                .filter(|cmd| {
+                    cmd.name.contains(&self.command_search)
+                        || cmd.help.contains(&self.command_search)
+                })
+                .collect()
+        }
+    }
+
+    pub fn scroll_up(&mut self) {
+        match self.mode {
+            UIMode::Chat => {
+                self.scroll_offset = self.scroll_offset.saturating_add(3);
+            }
+            UIMode::CommandPalette => {
+                self.selected_command_idx = self.selected_command_idx.saturating_sub(1);
+            }
+            UIMode::Modal(_) => {
+                // No scrolling in modal
+            }
         }
     }
 
     pub fn scroll_down(&mut self) {
-        if !self.drawer_open {
-            self.scroll_offset = self.scroll_offset.saturating_sub(3);
-        } else {
-            let cmd_count = self.command_registry.get_all_commands().len();
-            if self.selected_command < cmd_count.saturating_sub(1) {
-                self.selected_command += 1;
+        match self.mode {
+            UIMode::Chat => {
+                self.scroll_offset = self.scroll_offset.saturating_sub(3);
+            }
+            UIMode::CommandPalette => {
+                let count = self.get_filtered_commands().len();
+                if self.selected_command_idx < count.saturating_sub(1) {
+                    self.selected_command_idx += 1;
+                }
+            }
+            UIMode::Modal(_) => {
+                // No scrolling in modal
             }
         }
     }
@@ -111,7 +206,6 @@ impl App {
         self.error_message = Some(error);
         self.is_loading = false;
     }
-
 
     pub fn tick(&mut self) {
         self.tick_count = self.tick_count.wrapping_add(1);

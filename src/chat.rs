@@ -10,7 +10,7 @@ use crate::config::RuboxConfig;
 use crate::llm_client::{LlmClient, ChatMessage as ApiChatMessage};
 use crate::server_manager::ServerManager;
 use crate::commands::{ChatState, CommandResult};
-use crate::tui::{App, EventHandler, AppEvent};
+use crate::tui::{App, EventHandler, AppEvent, UIMode, ModalType};
 
 pub async fn run_chat_mode(
     client: &LlmClient,
@@ -71,14 +71,25 @@ pub async fn run_chat_mode(
                     use crossterm::event::{KeyCode, KeyModifiers};
 
                     match key.code {
-                        KeyCode::Tab => app.toggle_drawer(),
-                        KeyCode::Esc => {
-                            if app.drawer_open {
-                                app.drawer_open = false;
+                        KeyCode::Char('/') if matches!(app.mode, UIMode::Chat) => {
+                            // Only open command palette if typing / in chat mode
+                            if app.input_buffer.is_empty() {
+                                app.open_command_palette();
                             } else {
-                                app.should_exit = true;
+                                app.handle_input_char('/');
                             }
                         }
+                        KeyCode::Esc => match app.mode {
+                            UIMode::Chat => {
+                                app.should_exit = true;
+                            }
+                            UIMode::CommandPalette => {
+                                app.close_command_palette();
+                            }
+                            UIMode::Modal(_) => {
+                                app.close_modal();
+                            }
+                        },
                         KeyCode::Enter => {
                             if let Some(input) = app.submit_input() {
                                 if input.starts_with('/') {

@@ -6,73 +6,282 @@ use ratatui::{
     Frame,
 };
 
-use crate::tui::App;
+use crate::tui::{App, UIMode, ModalType};
 
 const ORANGE: Color = Color::Rgb(255, 135, 0);
 const EMERALD: Color = Color::Rgb(0, 255, 135);
 
 pub fn draw(f: &mut Frame, app: &App) {
-    let size = f.area();
-
-    if app.drawer_open {
-        // Split layout: [Drawer 30%] [Chat 70%]
-        let chunks = Layout::default()
-            .direction(Direction::Horizontal)
-            .constraints([Constraint::Percentage(30), Constraint::Percentage(70)])
-            .split(size);
-
-        draw_command_drawer(f, chunks[0], app);
-        draw_chat_area(f, chunks[1], app);
-    } else {
-        // Full width chat
-        draw_chat_area(f, size, app);
+    match app.mode {
+        UIMode::Chat => draw_chat_view(f, app),
+        UIMode::CommandPalette => draw_command_palette(f, app),
+        UIMode::Modal(ref modal_type) => draw_modal(f, app, modal_type),
     }
 }
 
-fn draw_command_drawer(f: &mut Frame, area: Rect, app: &App) {
-    let commands = app.command_registry.get_all_commands();
+fn draw_chat_view(f: &mut Frame, app: &App) {
+    let size = f.area();
 
-    let mut items = Vec::new();
+    // Layout: [Chat History] [Input Box] [Status Bar]
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Min(5), Constraint::Length(4), Constraint::Length(1)])
+        .split(size);
+
+    draw_chat_history(f, chunks[0], app);
+    draw_input_box(f, chunks[1], app);
+    draw_status_bar(f, chunks[2], app);
+}
+
+fn draw_command_palette(f: &mut Frame, app: &App) {
+    let size = f.area();
+
+    // Center the command palette
+    let width = 60;
+    let height = 16;
+    let x = (size.width.saturating_sub(width)) / 2;
+    let y = (size.height.saturating_sub(height)) / 2;
+    let modal_area = Rect {
+        x,
+        y,
+        width,
+        height,
+    };
+
+    // Draw semi-transparent background
+    let background = Block::default()
+        .borders(Borders::NONE)
+        .style(Style::default());
+    f.render_widget(background, size);
+
+    // Build command list
+    let commands = app.get_filtered_commands();
+    let mut items: Vec<Line> = Vec::new();
+
+    // Add search box at top
+    items.push(Line::from(vec![
+        Span::raw("Search: "),
+        Span::styled(&app.command_search, Style::default().fg(EMERALD)),
+        Span::raw("_"),
+    ]));
+    items.push(Line::from(""));
+
+    // Add commands
     for (idx, cmd) in commands.iter().enumerate() {
-        let style = if idx == app.selected_command {
+        let style = if idx == app.selected_command_idx {
             Style::default()
-                .fg(ORANGE)
-                .bg(Color::DarkGray)
+                .bg(EMERALD)
+                .fg(Color::Black)
                 .add_modifier(Modifier::BOLD)
         } else {
             Style::default().fg(EMERALD)
         };
 
-        let cmd_line = format!("  /{:<12} - {}", cmd.name, cmd.help);
-        items.push(Line::from(Span::styled(cmd_line, style)));
+        let line_text = format!("  /{:<12} {}", cmd.name, cmd.help);
+        items.push(Line::from(Span::styled(line_text, style)));
     }
 
-    let drawer_block = Block::default()
-        .title(" Commands (Tab to close) ")
+    items.push(Line::from(""));
+    items.push(Line::from(Span::styled(
+        "↑↓ Navigate  Enter Select  Esc Cancel",
+        Style::default().fg(Color::DarkGray).add_modifier(Modifier::DIM),
+    )));
+
+    let block = Block::default()
+        .title(" Commands ")
         .borders(Borders::ALL)
         .border_style(Style::default().fg(ORANGE));
 
     let paragraph = Paragraph::new(items)
-        .block(drawer_block)
+        .block(block)
         .alignment(Alignment::Left);
 
+    f.render_widget(paragraph, modal_area);
+}
+
+fn draw_modal(f: &mut Frame, app: &App, modal_type: &ModalType) {
+    let size = f.area();
+
+    // Center the modal
+    let width = 50;
+    let height = 12;
+    let x = (size.width.saturating_sub(width)) / 2;
+    let y = (size.height.saturating_sub(height)) / 2;
+    let modal_area = Rect {
+        x,
+        y,
+        width,
+        height,
+    };
+
+    match modal_type {
+        ModalType::ModelSelector => draw_modal_model_selector(f, app, modal_area),
+        ModalType::SetTemperature => draw_modal_temperature(f, app, modal_area),
+        ModalType::DeleteMessage => draw_modal_delete_message(f, app, modal_area),
+        ModalType::SaveResponse => draw_modal_save_response(f, app, modal_area),
+        ModalType::RenameSession => draw_modal_rename_session(f, app, modal_area),
+        ModalType::LoadPrompt => draw_modal_load_prompt(f, app, modal_area),
+    }
+}
+
+fn draw_modal_model_selector(f: &mut Frame, app: &App, area: Rect) {
+    let mut items = Vec::new();
+    items.push(Line::from(Span::styled(
+        "Select Model:",
+        Style::default().fg(ORANGE),
+    )));
+    items.push(Line::from(""));
+
+    // Display available models (placeholder - would need model list from config)
+    items.push(Line::from(format!("  [1] {} ✓", app.current_model)));
+    items.push(Line::from("  [2] Other models..."));
+
+    items.push(Line::from(""));
+    items.push(Line::from(Span::styled(
+        "Enter model number",
+        Style::default().fg(Color::DarkGray),
+    )));
+
+    let block = Block::default()
+        .title(" Model ")
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(ORANGE));
+
+    let paragraph = Paragraph::new(items).block(block);
     f.render_widget(paragraph, area);
 }
 
-fn draw_chat_area(f: &mut Frame, area: Rect, app: &App) {
-    // Vertical layout: [History] [Input 4 lines] [Status 1 line]
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Min(5),
-            Constraint::Length(4),
-            Constraint::Length(1),
-        ])
-        .split(area);
+fn draw_modal_temperature(f: &mut Frame, app: &App, area: Rect) {
+    let mut items = Vec::new();
+    items.push(Line::from(Span::styled(
+        "Set Temperature:",
+        Style::default().fg(ORANGE),
+    )));
+    items.push(Line::from(""));
+    items.push(Line::from(format!(
+        "Current: {:.1}  (Range: 0.0-2.0)",
+        app.temperature
+    )));
+    items.push(Line::from(""));
 
-    draw_chat_history(f, chunks[0], app);
-    draw_input_box(f, chunks[1], app);
-    draw_status_bar(f, chunks[2], app);
+    let input_str = format!("Input: {}_", app.modal_input);
+    items.push(Line::from(Span::styled(
+        input_str,
+        Style::default().fg(EMERALD),
+    )));
+    items.push(Line::from(""));
+    items.push(Line::from(Span::styled(
+        "Enter new value",
+        Style::default().fg(Color::DarkGray),
+    )));
+
+    let block = Block::default()
+        .title(" Temperature ")
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(ORANGE));
+
+    let paragraph = Paragraph::new(items).block(block);
+    f.render_widget(paragraph, area);
+}
+
+fn draw_modal_delete_message(f: &mut Frame, app: &App, area: Rect) {
+    let mut items = Vec::new();
+    items.push(Line::from(Span::styled(
+        "Delete Message:",
+        Style::default().fg(ORANGE),
+    )));
+    items.push(Line::from(""));
+    items.push(Line::from("Enter message ID or 'all'"));
+    items.push(Line::from(""));
+
+    let input_str = format!("Input: {}_", app.modal_input);
+    items.push(Line::from(Span::styled(
+        input_str,
+        Style::default().fg(EMERALD),
+    )));
+
+    let block = Block::default()
+        .title(" Delete ")
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(ORANGE));
+
+    let paragraph = Paragraph::new(items).block(block);
+    f.render_widget(paragraph, area);
+}
+
+fn draw_modal_save_response(f: &mut Frame, app: &App, area: Rect) {
+    let mut items = Vec::new();
+    items.push(Line::from(Span::styled(
+        "Save Response:",
+        Style::default().fg(ORANGE),
+    )));
+    items.push(Line::from(""));
+    items.push(Line::from("Enter message ID to export"));
+    items.push(Line::from(""));
+
+    let input_str = format!("Input: {}_", app.modal_input);
+    items.push(Line::from(Span::styled(
+        input_str,
+        Style::default().fg(EMERALD),
+    )));
+
+    let block = Block::default()
+        .title(" Save ")
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(ORANGE));
+
+    let paragraph = Paragraph::new(items).block(block);
+    f.render_widget(paragraph, area);
+}
+
+fn draw_modal_rename_session(f: &mut Frame, app: &App, area: Rect) {
+    let mut items = Vec::new();
+    items.push(Line::from(Span::styled(
+        "Rename Session:",
+        Style::default().fg(ORANGE),
+    )));
+    items.push(Line::from(""));
+    items.push(Line::from("Enter new label for this session"));
+    items.push(Line::from(""));
+
+    let input_str = format!("Input: {}_", app.modal_input);
+    items.push(Line::from(Span::styled(
+        input_str,
+        Style::default().fg(EMERALD),
+    )));
+
+    let block = Block::default()
+        .title(" Rename ")
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(ORANGE));
+
+    let paragraph = Paragraph::new(items).block(block);
+    f.render_widget(paragraph, area);
+}
+
+fn draw_modal_load_prompt(f: &mut Frame, app: &App, area: Rect) {
+    let mut items = Vec::new();
+    items.push(Line::from(Span::styled(
+        "Load Prompt:",
+        Style::default().fg(ORANGE),
+    )));
+    items.push(Line::from(""));
+    items.push(Line::from("Enter prompt ID or 'list'"));
+    items.push(Line::from(""));
+
+    let input_str = format!("Input: {}_", app.modal_input);
+    items.push(Line::from(Span::styled(
+        input_str,
+        Style::default().fg(EMERALD),
+    )));
+
+    let block = Block::default()
+        .title(" Prompt ")
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(ORANGE));
+
+    let paragraph = Paragraph::new(items).block(block);
+    f.render_widget(paragraph, area);
 }
 
 fn draw_chat_history(f: &mut Frame, area: Rect, app: &App) {
@@ -90,18 +299,16 @@ fn draw_chat_history(f: &mut Frame, area: Rect, app: &App) {
         let role = Span::styled(&msg.role, role_style);
         lines.push(Line::from(vec![arrow, role]));
 
-        // Format message content (markdown support)
-        let formatted_content = format_markdown_for_ratatui(&msg.content);
-        lines.extend(formatted_content);
+        // Simple text display (no markdown rendering complexity)
+        for content_line in msg.content.lines() {
+            lines.push(Line::from(content_line.to_string()));
+        }
 
         lines.push(Line::from("")); // Empty line between messages
     }
 
     let block = Block::default()
-        .title(format!(
-            " Chat - {} (Tab for commands) ",
-            app.current_model
-        ))
+        .title(format!(" Chat - {} ", app.current_model))
         .borders(Borders::ALL)
         .border_style(Style::default().fg(EMERALD));
 
@@ -110,7 +317,6 @@ fn draw_chat_history(f: &mut Frame, area: Rect, app: &App) {
         .alignment(Alignment::Left)
         .wrap(Wrap { trim: false });
 
-    // Apply scroll offset
     if app.scroll_offset > 0 {
         paragraph = paragraph.scroll((app.scroll_offset as u16, 0));
     }
@@ -120,11 +326,7 @@ fn draw_chat_history(f: &mut Frame, area: Rect, app: &App) {
 
 fn draw_input_box(f: &mut Frame, area: Rect, app: &App) {
     let input_text = if app.is_loading {
-        format!(
-            "{}  {}",
-            app.get_loading_spinner(),
-            app.input_buffer
-        )
+        format!("{}  {}", app.get_loading_spinner(), app.input_buffer)
     } else {
         app.input_buffer.clone()
     };
@@ -136,7 +338,7 @@ fn draw_input_box(f: &mut Frame, area: Rect, app: &App) {
     };
 
     let block = Block::default()
-        .title(" Input ")
+        .title(" Input (/ for commands) ")
         .borders(Borders::ALL)
         .border_style(Style::default().fg(ORANGE));
 
@@ -160,10 +362,7 @@ fn draw_status_bar(f: &mut Frame, area: Rect, app: &App) {
     let status_text = if let Some(error) = &app.error_message {
         format!("✗ Error: {}", error)
     } else if app.is_loading {
-        format!(
-            "⚡ Loading... ({})",
-            app.get_loading_spinner()
-        )
+        format!("⚡ Loading... ({})", app.get_loading_spinner())
     } else {
         format!(
             "⚡ {:.1} tps | {:.2}s | Temp: {:.1}",
@@ -182,19 +381,4 @@ fn draw_status_bar(f: &mut Frame, area: Rect, app: &App) {
         .alignment(Alignment::Left);
 
     f.render_widget(paragraph, area);
-}
-
-fn format_markdown_for_ratatui(text: &str) -> Vec<Line<'static>> {
-    // For simplicity and to avoid lifetime issues, just return basic lines
-    // Actual markdown rendering would be more complex with owned data
-    let lines: Vec<Line<'static>> = text
-        .lines()
-        .map(|line| Line::from(line.to_string()))
-        .collect();
-
-    if lines.is_empty() {
-        vec![Line::from("")]
-    } else {
-        lines
-    }
 }

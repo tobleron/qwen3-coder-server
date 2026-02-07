@@ -1,0 +1,16 @@
+[
+  {
+    "id": 1,
+    "role": "user",
+    "content": "Hello",
+    "timestamp": "2026-02-07T21:34:52.044360425Z",
+    "tokens": null
+  },
+  {
+    "id": 2,
+    "role": "assistant",
+    "content": "Hello! 😊  \nHow can I assist you today? Whether you need help with a question, want to chat, or just need someone to talk to — I'm here for you. What’s on your mind?",
+    "timestamp": "2026-02-07T21:34:53.500458318Z",
+    "tokens": 45
+  }
+]
