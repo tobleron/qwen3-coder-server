@@ -71,23 +71,24 @@ pub async fn run_chat_mode(
                     use crossterm::event::{KeyCode, KeyModifiers};
 
                     match key.code {
-                        KeyCode::Char('/') if matches!(app.mode, UIMode::Chat) => {
-                            // Only open command palette if typing / in chat mode
-                            if app.input_buffer.is_empty() {
-                                app.open_command_palette();
-                            } else {
-                                app.handle_input_char('/');
-                            }
+                        KeyCode::Char('/') if matches!(app.mode, UIMode::Chat) && app.input_buffer.is_empty() => {
+                            // Open command palette when / is typed at start of input
+                            app.open_command_palette();
                         }
                         KeyCode::Esc => match app.mode {
                             UIMode::Chat => {
                                 app.should_exit = true;
                             }
                             UIMode::CommandPalette => {
-                                app.close_command_palette();
+                                // Cancel command palette and clear search
+                                app.mode = UIMode::Chat;
+                                app.command_search.clear();
+                                app.selected_command_idx = 0;
                             }
                             UIMode::Modal(_) => {
-                                app.close_modal();
+                                // Cancel modal and go back to chat
+                                app.mode = UIMode::Chat;
+                                app.modal_input.clear();
                             }
                         },
                         KeyCode::Enter => {

@@ -12,276 +12,24 @@ const ORANGE: Color = Color::Rgb(255, 135, 0);
 const EMERALD: Color = Color::Rgb(0, 255, 135);
 
 pub fn draw(f: &mut Frame, app: &App) {
-    match app.mode {
-        UIMode::Chat => draw_chat_view(f, app),
-        UIMode::CommandPalette => draw_command_palette(f, app),
-        UIMode::Modal(ref modal_type) => draw_modal(f, app, modal_type),
-    }
-}
-
-fn draw_chat_view(f: &mut Frame, app: &App) {
     let size = f.area();
 
-    // Layout: [Chat History] [Input Box] [Status Bar]
+    // Layout: [Chat History] [Input/Dropdown Area] [Status Bar]
     let chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Min(5), Constraint::Length(4), Constraint::Length(1)])
+        .constraints([Constraint::Min(5), Constraint::Min(4), Constraint::Length(1)])
         .split(size);
 
     draw_chat_history(f, chunks[0], app);
-    draw_input_box(f, chunks[1], app);
+
+    // Input area - can contain either input box, command palette, or modal
+    match app.mode {
+        UIMode::Chat => draw_input_box(f, chunks[1], app),
+        UIMode::CommandPalette => draw_command_palette_dropdown(f, chunks[1], app),
+        UIMode::Modal(_) => draw_modal_form(f, chunks[1], app),
+    }
+
     draw_status_bar(f, chunks[2], app);
-}
-
-fn draw_command_palette(f: &mut Frame, app: &App) {
-    let size = f.area();
-
-    // Center the command palette
-    let width = 60;
-    let height = 16;
-    let x = (size.width.saturating_sub(width)) / 2;
-    let y = (size.height.saturating_sub(height)) / 2;
-    let modal_area = Rect {
-        x,
-        y,
-        width,
-        height,
-    };
-
-    // Draw semi-transparent background
-    let background = Block::default()
-        .borders(Borders::NONE)
-        .style(Style::default());
-    f.render_widget(background, size);
-
-    // Build command list
-    let commands = app.get_filtered_commands();
-    let mut items: Vec<Line> = Vec::new();
-
-    // Add search box at top
-    items.push(Line::from(vec![
-        Span::raw("Search: "),
-        Span::styled(&app.command_search, Style::default().fg(EMERALD)),
-        Span::raw("_"),
-    ]));
-    items.push(Line::from(""));
-
-    // Add commands
-    for (idx, cmd) in commands.iter().enumerate() {
-        let style = if idx == app.selected_command_idx {
-            Style::default()
-                .bg(EMERALD)
-                .fg(Color::Black)
-                .add_modifier(Modifier::BOLD)
-        } else {
-            Style::default().fg(EMERALD)
-        };
-
-        let line_text = format!("  /{:<12} {}", cmd.name, cmd.help);
-        items.push(Line::from(Span::styled(line_text, style)));
-    }
-
-    items.push(Line::from(""));
-    items.push(Line::from(Span::styled(
-        "↑↓ Navigate  Enter Select  Esc Cancel",
-        Style::default().fg(Color::DarkGray).add_modifier(Modifier::DIM),
-    )));
-
-    let block = Block::default()
-        .title(" Commands ")
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(ORANGE));
-
-    let paragraph = Paragraph::new(items)
-        .block(block)
-        .alignment(Alignment::Left);
-
-    f.render_widget(paragraph, modal_area);
-}
-
-fn draw_modal(f: &mut Frame, app: &App, modal_type: &ModalType) {
-    let size = f.area();
-
-    // Center the modal
-    let width = 50;
-    let height = 12;
-    let x = (size.width.saturating_sub(width)) / 2;
-    let y = (size.height.saturating_sub(height)) / 2;
-    let modal_area = Rect {
-        x,
-        y,
-        width,
-        height,
-    };
-
-    match modal_type {
-        ModalType::ModelSelector => draw_modal_model_selector(f, app, modal_area),
-        ModalType::SetTemperature => draw_modal_temperature(f, app, modal_area),
-        ModalType::DeleteMessage => draw_modal_delete_message(f, app, modal_area),
-        ModalType::SaveResponse => draw_modal_save_response(f, app, modal_area),
-        ModalType::RenameSession => draw_modal_rename_session(f, app, modal_area),
-        ModalType::LoadPrompt => draw_modal_load_prompt(f, app, modal_area),
-    }
-}
-
-fn draw_modal_model_selector(f: &mut Frame, app: &App, area: Rect) {
-    let mut items = Vec::new();
-    items.push(Line::from(Span::styled(
-        "Select Model:",
-        Style::default().fg(ORANGE),
-    )));
-    items.push(Line::from(""));
-
-    // Display available models (placeholder - would need model list from config)
-    items.push(Line::from(format!("  [1] {} ✓", app.current_model)));
-    items.push(Line::from("  [2] Other models..."));
-
-    items.push(Line::from(""));
-    items.push(Line::from(Span::styled(
-        "Enter model number",
-        Style::default().fg(Color::DarkGray),
-    )));
-
-    let block = Block::default()
-        .title(" Model ")
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(ORANGE));
-
-    let paragraph = Paragraph::new(items).block(block);
-    f.render_widget(paragraph, area);
-}
-
-fn draw_modal_temperature(f: &mut Frame, app: &App, area: Rect) {
-    let mut items = Vec::new();
-    items.push(Line::from(Span::styled(
-        "Set Temperature:",
-        Style::default().fg(ORANGE),
-    )));
-    items.push(Line::from(""));
-    items.push(Line::from(format!(
-        "Current: {:.1}  (Range: 0.0-2.0)",
-        app.temperature
-    )));
-    items.push(Line::from(""));
-
-    let input_str = format!("Input: {}_", app.modal_input);
-    items.push(Line::from(Span::styled(
-        input_str,
-        Style::default().fg(EMERALD),
-    )));
-    items.push(Line::from(""));
-    items.push(Line::from(Span::styled(
-        "Enter new value",
-        Style::default().fg(Color::DarkGray),
-    )));
-
-    let block = Block::default()
-        .title(" Temperature ")
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(ORANGE));
-
-    let paragraph = Paragraph::new(items).block(block);
-    f.render_widget(paragraph, area);
-}
-
-fn draw_modal_delete_message(f: &mut Frame, app: &App, area: Rect) {
-    let mut items = Vec::new();
-    items.push(Line::from(Span::styled(
-        "Delete Message:",
-        Style::default().fg(ORANGE),
-    )));
-    items.push(Line::from(""));
-    items.push(Line::from("Enter message ID or 'all'"));
-    items.push(Line::from(""));
-
-    let input_str = format!("Input: {}_", app.modal_input);
-    items.push(Line::from(Span::styled(
-        input_str,
-        Style::default().fg(EMERALD),
-    )));
-
-    let block = Block::default()
-        .title(" Delete ")
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(ORANGE));
-
-    let paragraph = Paragraph::new(items).block(block);
-    f.render_widget(paragraph, area);
-}
-
-fn draw_modal_save_response(f: &mut Frame, app: &App, area: Rect) {
-    let mut items = Vec::new();
-    items.push(Line::from(Span::styled(
-        "Save Response:",
-        Style::default().fg(ORANGE),
-    )));
-    items.push(Line::from(""));
-    items.push(Line::from("Enter message ID to export"));
-    items.push(Line::from(""));
-
-    let input_str = format!("Input: {}_", app.modal_input);
-    items.push(Line::from(Span::styled(
-        input_str,
-        Style::default().fg(EMERALD),
-    )));
-
-    let block = Block::default()
-        .title(" Save ")
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(ORANGE));
-
-    let paragraph = Paragraph::new(items).block(block);
-    f.render_widget(paragraph, area);
-}
-
-fn draw_modal_rename_session(f: &mut Frame, app: &App, area: Rect) {
-    let mut items = Vec::new();
-    items.push(Line::from(Span::styled(
-        "Rename Session:",
-        Style::default().fg(ORANGE),
-    )));
-    items.push(Line::from(""));
-    items.push(Line::from("Enter new label for this session"));
-    items.push(Line::from(""));
-
-    let input_str = format!("Input: {}_", app.modal_input);
-    items.push(Line::from(Span::styled(
-        input_str,
-        Style::default().fg(EMERALD),
-    )));
-
-    let block = Block::default()
-        .title(" Rename ")
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(ORANGE));
-
-    let paragraph = Paragraph::new(items).block(block);
-    f.render_widget(paragraph, area);
-}
-
-fn draw_modal_load_prompt(f: &mut Frame, app: &App, area: Rect) {
-    let mut items = Vec::new();
-    items.push(Line::from(Span::styled(
-        "Load Prompt:",
-        Style::default().fg(ORANGE),
-    )));
-    items.push(Line::from(""));
-    items.push(Line::from("Enter prompt ID or 'list'"));
-    items.push(Line::from(""));
-
-    let input_str = format!("Input: {}_", app.modal_input);
-    items.push(Line::from(Span::styled(
-        input_str,
-        Style::default().fg(EMERALD),
-    )));
-
-    let block = Block::default()
-        .title(" Prompt ")
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(ORANGE));
-
-    let paragraph = Paragraph::new(items).block(block);
-    f.render_widget(paragraph, area);
 }
 
 fn draw_chat_history(f: &mut Frame, area: Rect, app: &App) {
@@ -299,7 +47,7 @@ fn draw_chat_history(f: &mut Frame, area: Rect, app: &App) {
         let role = Span::styled(&msg.role, role_style);
         lines.push(Line::from(vec![arrow, role]));
 
-        // Simple text display (no markdown rendering complexity)
+        // Simple text display
         for content_line in msg.content.lines() {
             lines.push(Line::from(content_line.to_string()));
         }
@@ -338,7 +86,7 @@ fn draw_input_box(f: &mut Frame, area: Rect, app: &App) {
     };
 
     let block = Block::default()
-        .title(" Input (/ for commands) ")
+        .title(" Input (type / for commands) ")
         .borders(Borders::ALL)
         .border_style(Style::default().fg(ORANGE));
 
@@ -354,6 +102,169 @@ fn draw_input_box(f: &mut Frame, area: Rect, app: &App) {
     if !app.is_loading && area.height > 2 && area.width > 2 {
         let cursor_x = area.x + 1 + (app.input_buffer.len() as u16).min(area.width - 3);
         let cursor_y = area.y + 1;
+        f.set_cursor_position((cursor_x, cursor_y));
+    }
+}
+
+fn draw_command_palette_dropdown(f: &mut Frame, area: Rect, app: &App) {
+    // Build the dropdown list
+    let commands = app.get_filtered_commands();
+    let mut lines = Vec::new();
+
+    // Show the search input at top
+    let search_input = format!("{}", app.command_search);
+    let search_line = Line::from(vec![
+        Span::raw("  "),
+        Span::styled("/", Style::default().fg(ORANGE)),
+        Span::styled(&search_input, Style::default().fg(EMERALD).add_modifier(Modifier::BOLD)),
+        Span::raw("_"),
+    ]);
+    lines.push(search_line);
+    lines.push(Line::from(""));
+
+    // Add filtered commands
+    if commands.is_empty() {
+        lines.push(Line::from(Span::styled(
+            "  No commands found",
+            Style::default().fg(Color::DarkGray),
+        )));
+    } else {
+        for (idx, cmd) in commands.iter().enumerate() {
+            let style = if idx == app.selected_command_idx {
+                Style::default()
+                    .bg(EMERALD)
+                    .fg(Color::Black)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(EMERALD)
+            };
+
+            let line_text = format!("  /{:<12} {}", cmd.name, cmd.help);
+            lines.push(Line::from(Span::styled(line_text, style)));
+        }
+    }
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(ORANGE));
+
+    let paragraph = Paragraph::new(lines)
+        .block(block)
+        .alignment(Alignment::Left);
+
+    f.render_widget(paragraph, area);
+}
+
+fn draw_modal_form(f: &mut Frame, area: Rect, app: &App) {
+    let mut lines = Vec::new();
+
+    match app.mode {
+        UIMode::Modal(ref modal_type) => {
+            match modal_type {
+                ModalType::ModelSelector => {
+                    lines.push(Line::from(Span::styled(
+                        "Select model: ",
+                        Style::default().fg(ORANGE),
+                    )));
+                    lines.push(Line::from(""));
+                    lines.push(Line::from(format!("  [1] {} ✓", app.current_model)));
+                    lines.push(Line::from("  [2] Other model 1"));
+                    lines.push(Line::from("  [3] Other model 2"));
+                    lines.push(Line::from(""));
+                    lines.push(Line::from(Span::styled(
+                        "  Enter number or type to search",
+                        Style::default().fg(Color::DarkGray).add_modifier(Modifier::DIM),
+                    )));
+                }
+                ModalType::SetTemperature => {
+                    let current_temp = format!("Current: {:.1}", app.temperature);
+                    lines.push(Line::from(vec![
+                        Span::styled("Set temperature (0.0-2.0): ", Style::default().fg(ORANGE)),
+                        Span::styled(
+                            current_temp,
+                            Style::default().fg(Color::DarkGray),
+                        ),
+                    ]));
+                    lines.push(Line::from(""));
+
+                    let input_str = format!("  {}_", app.modal_input);
+                    lines.push(Line::from(Span::styled(
+                        input_str,
+                        Style::default().fg(EMERALD),
+                    )));
+                }
+                ModalType::DeleteMessage => {
+                    lines.push(Line::from(Span::styled(
+                        "Delete message (enter ID or 'all'): ",
+                        Style::default().fg(ORANGE),
+                    )));
+                    lines.push(Line::from(""));
+
+                    let input_str = format!("  {}_", app.modal_input);
+                    lines.push(Line::from(Span::styled(
+                        input_str,
+                        Style::default().fg(EMERALD),
+                    )));
+                }
+                ModalType::SaveResponse => {
+                    lines.push(Line::from(Span::styled(
+                        "Save response (enter message ID): ",
+                        Style::default().fg(ORANGE),
+                    )));
+                    lines.push(Line::from(""));
+
+                    let input_str = format!("  {}_", app.modal_input);
+                    lines.push(Line::from(Span::styled(
+                        input_str,
+                        Style::default().fg(EMERALD),
+                    )));
+                }
+                ModalType::RenameSession => {
+                    lines.push(Line::from(Span::styled(
+                        "Rename session (enter new label): ",
+                        Style::default().fg(ORANGE),
+                    )));
+                    lines.push(Line::from(""));
+
+                    let input_str = format!("  {}_", app.modal_input);
+                    lines.push(Line::from(Span::styled(
+                        input_str,
+                        Style::default().fg(EMERALD),
+                    )));
+                }
+                ModalType::LoadPrompt => {
+                    lines.push(Line::from(Span::styled(
+                        "Load prompt (enter ID or 'list'): ",
+                        Style::default().fg(ORANGE),
+                    )));
+                    lines.push(Line::from(""));
+
+                    let input_str = format!("  {}_", app.modal_input);
+                    lines.push(Line::from(Span::styled(
+                        input_str,
+                        Style::default().fg(EMERALD),
+                    )));
+                }
+            }
+        }
+        _ => {}
+    }
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(ORANGE));
+
+    let paragraph = Paragraph::new(lines)
+        .block(block)
+        .alignment(Alignment::Left)
+        .wrap(Wrap { trim: false });
+
+    f.render_widget(paragraph, area);
+
+    // Set cursor position in modal
+    if area.height > 2 && area.width > 2 {
+        let cursor_x = area.x + 3 + (app.modal_input.len() as u16).min(area.width - 5);
+        let cursor_y = area.y + 3; // Approximate position
         f.set_cursor_position((cursor_x, cursor_y));
     }
 }
