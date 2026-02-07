@@ -15,9 +15,14 @@ pub fn draw(f: &mut Frame, app: &App) {
     let size = f.area();
 
     // Layout: [Chat History] [Input/Dropdown Area] [Status Bar]
+    // Give input area more space (40%) to show forms/menus properly
     let chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Min(5), Constraint::Min(4), Constraint::Length(1)])
+        .constraints([
+            Constraint::Percentage(55),  // Chat history - 55%
+            Constraint::Percentage(40),  // Input/form area - 40%
+            Constraint::Length(1),       // Status bar - 1 line
+        ])
         .split(size);
 
     draw_chat_history(f, chunks[0], app);
@@ -111,11 +116,10 @@ fn draw_command_palette_dropdown(f: &mut Frame, area: Rect, app: &App) {
     let commands = app.get_filtered_commands();
     let mut lines = Vec::new();
 
-    // Show the search input at top
+    // Show the search input at top with clear title
     let search_input = format!("{}", app.command_search);
     let search_line = Line::from(vec![
-        Span::raw("  "),
-        Span::styled("/", Style::default().fg(ORANGE)),
+        Span::styled("  /", Style::default().fg(ORANGE).add_modifier(Modifier::BOLD)),
         Span::styled(&search_input, Style::default().fg(EMERALD).add_modifier(Modifier::BOLD)),
         Span::raw("_"),
     ]);
@@ -126,7 +130,7 @@ fn draw_command_palette_dropdown(f: &mut Frame, area: Rect, app: &App) {
     if commands.is_empty() {
         lines.push(Line::from(Span::styled(
             "  No commands found",
-            Style::default().fg(Color::DarkGray),
+            Style::default().fg(Color::Yellow),
         )));
     } else {
         for (idx, cmd) in commands.iter().enumerate() {
@@ -144,13 +148,21 @@ fn draw_command_palette_dropdown(f: &mut Frame, area: Rect, app: &App) {
         }
     }
 
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        "  ↑↓ Navigate  Enter Select  Esc Cancel",
+        Style::default().fg(Color::Gray).add_modifier(Modifier::DIM),
+    )));
+
     let block = Block::default()
+        .title(" Commands ")
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(ORANGE));
+        .border_style(Style::default().fg(ORANGE).add_modifier(Modifier::BOLD));
 
     let paragraph = Paragraph::new(lines)
         .block(block)
-        .alignment(Alignment::Left);
+        .alignment(Alignment::Left)
+        .wrap(Wrap { trim: false });
 
     f.render_widget(paragraph, area);
 }
@@ -279,8 +291,17 @@ fn draw_modal_form(f: &mut Frame, area: Rect, app: &App) {
     }
 
     let block = Block::default()
+        .title(match app.mode {
+            UIMode::Modal(ModalType::ModelSelector) => " Select Model ",
+            UIMode::Modal(ModalType::SetTemperature) => " Set Temperature ",
+            UIMode::Modal(ModalType::DeleteMessage) => " Delete Message ",
+            UIMode::Modal(ModalType::SaveResponse) => " Save Response ",
+            UIMode::Modal(ModalType::RenameSession) => " Rename Session ",
+            UIMode::Modal(ModalType::LoadPrompt) => " Load Prompt ",
+            _ => " Form ",
+        })
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(ORANGE));
+        .border_style(Style::default().fg(ORANGE).add_modifier(Modifier::BOLD));
 
     let paragraph = Paragraph::new(lines)
         .block(block)
@@ -289,10 +310,10 @@ fn draw_modal_form(f: &mut Frame, area: Rect, app: &App) {
 
     f.render_widget(paragraph, area);
 
-    // Set cursor position in modal
+    // Set cursor position in modal (approximate - ratatui calculates exact position)
     if area.height > 2 && area.width > 2 {
-        let cursor_x = area.x + 3 + (app.modal_input.len() as u16).min(area.width - 5);
-        let cursor_y = area.y + 3; // Approximate position
+        let cursor_x = (area.x + 3 + (app.modal_input.len() as u16)).min(area.x + area.width - 3);
+        let cursor_y = (area.y + 3).min(area.y + area.height - 2);
         f.set_cursor_position((cursor_x, cursor_y));
     }
 }
