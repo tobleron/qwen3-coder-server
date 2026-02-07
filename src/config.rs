@@ -10,6 +10,10 @@ pub struct RuboxConfig {
     pub directories: DirectoriesConfig,
     pub cleanup: CleanupConfig,
     pub ui: UiConfig,
+    pub temperature: TemperatureConfig,
+    pub session: SessionConfig,
+    #[serde(default = "ModelProfiles::default_profiles")]
+    pub model_profiles: std::collections::HashMap<String, ModelParams>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -38,6 +42,9 @@ pub struct DirectoriesConfig {
     pub tmp_md: String,
     pub chat: String,
     pub prompts: String,
+    pub sessions: String,
+    pub static_prompts: String,
+    pub saved_responses: String,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -55,6 +62,92 @@ pub struct UiConfig {
     pub color_reset: String,
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct TemperatureConfig {
+    pub default: f32,
+    pub min: f32,
+    pub max: f32,
+    pub allow_override: bool,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct SessionConfig {
+    pub auto_save: bool,
+    pub format: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct ModelParams {
+    pub batch_size: u32,
+    pub ubatch_size: u32,
+    pub gpu_layers: i32,
+    pub context_window: u32,
+    pub mmproj: Option<String>, // Vision model projection file
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct ModelProfiles {
+    pub profiles: std::collections::HashMap<String, ModelParams>,
+}
+
+impl ModelProfiles {
+    fn default_profiles() -> std::collections::HashMap<String, ModelParams> {
+        let mut profiles = std::collections::HashMap::new();
+
+        // Qwen3-VL-8B: Optimized for RTX 3060 12GB with vision support
+        profiles.insert(
+            "qwen3-vl".to_string(),
+            ModelParams {
+                batch_size: 512,
+                ubatch_size: 256,
+                gpu_layers: 35,
+                context_window: 8192,
+                mmproj: Some("models/mmproj-Qwen3VL-8B-Instruct-F16.gguf".to_string()),
+            },
+        );
+
+        // Gemma 3 4B: Lightweight text model
+        profiles.insert(
+            "gemma".to_string(),
+            ModelParams {
+                batch_size: 1024,
+                ubatch_size: 512,
+                gpu_layers: 45,
+                context_window: 8192,
+                mmproj: None,
+            },
+        );
+
+        // LFM 1.2B: Ultra-lightweight model
+        profiles.insert(
+            "lfm".to_string(),
+            ModelParams {
+                batch_size: 1024,
+                ubatch_size: 512,
+                gpu_layers: 99,
+                context_window: 4096,
+                mmproj: None,
+            },
+        );
+
+        // Qwen3-128k-30B: Extended context reasoning model (IQ2_M 10GB)
+        // MOE model with 8 experts active by default
+        // Optimal for reasoning, deep thinking tasks
+        profiles.insert(
+            "qwen3-128k".to_string(),
+            ModelParams {
+                batch_size: 256,      // Conservative for 30B model on 12GB
+                ubatch_size: 128,     // Micro-batch size
+                gpu_layers: 60,       // Push most layers to GPU (30B model)
+                context_window: 32768, // 32k tokens (safe), can extend to 128k if needed
+                mmproj: None,         // Text-only model
+            },
+        );
+
+        profiles
+    }
+}
+
 impl RuboxConfig {
     pub fn load() -> Self {
         let config_path = "rubox_config.json";
@@ -64,6 +157,19 @@ impl RuboxConfig {
         } else {
             Self::default_internal()
         }
+    }
+
+    pub fn get_model_params(&self, model_name: &str) -> ModelParams {
+        self.model_profiles
+            .get(model_name)
+            .cloned()
+            .unwrap_or_else(|| ModelParams {
+                batch_size: 512,
+                ubatch_size: 256,
+                gpu_layers: 35,
+                context_window: 8192,
+                mmproj: None,
+            })
     }
 
     fn default_internal() -> Self {
@@ -79,6 +185,10 @@ impl RuboxConfig {
         registry.insert(
             "lfm".to_string(),
             "models/LFM2.5-1.2B-Instruct-BF16.gguf".to_string(),
+        );
+        registry.insert(
+            "qwen3-128k".to_string(),
+            "models/Qwen3-128k-30B-NEO-MAX-PLUS-IQ2_M.gguf".to_string(),
         );
 
         RuboxConfig {
@@ -101,6 +211,9 @@ impl RuboxConfig {
                 tmp_md: "tmp_md".to_string(),
                 chat: "Chat".to_string(),
                 prompts: "output/_prompts".to_string(),
+                sessions: "Chat/sessions".to_string(),
+                static_prompts: "prompts/static".to_string(),
+                saved_responses: "Chat/saved".to_string(),
             },
             cleanup: CleanupConfig { tmp_age_days: 3 },
             ui: UiConfig {
@@ -111,6 +224,17 @@ impl RuboxConfig {
                 color_white: "\x1b[37m".to_string(),
                 color_reset: "\x1b[0m".to_string(),
             },
+            temperature: TemperatureConfig {
+                default: 0.7,
+                min: 0.0,
+                max: 2.0,
+                allow_override: true,
+            },
+            session: SessionConfig {
+                auto_save: true,
+                format: "json".to_string(),
+            },
+            model_profiles: ModelProfiles::default_profiles(),
         }
     }
 }

@@ -1,410 +1,191 @@
-use std::io::{self, Write};
-use chrono::Local;
-use std::fs;
-use std::path::Path;
+use crossterm::{
+    execute,
+    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+};
+use ratatui::{backend::CrosstermBackend, Terminal};
+use std::io;
 use std::time::Instant;
-use colored::*;
-use crate::config::RuboxConfig;
-use crate::llm_client::{LlmClient, ChatMessage};
-use crate::server_manager::ServerManager;
 
-enum CommandResult {
-    Continue,
-    Exit,
-}
+use crate::config::RuboxConfig;
+use crate::llm_client::{LlmClient, ChatMessage as ApiChatMessage};
+use crate::server_manager::ServerManager;
+use crate::commands::{ChatState, CommandResult};
+use crate::tui::{App, EventHandler, AppEvent};
 
 pub async fn run_chat_mode(
     client: &LlmClient,
     model_name: &str,
-    initial_prompt: String,
     config: &RuboxConfig,
-    mut verbose: bool,
+    _verbose: bool,
     server: &mut ServerManager,
 ) -> anyhow::Result<()> {
-    let mut history = vec![ChatMessage {
-        role: "user".to_string(),
-        content: initial_prompt.clone(),
-    }];
+    // Setup terminal
+    enable_raw_mode()?;
+    let mut stdout = io::stdout();
+    execute!(stdout, EnterAlternateScreen)?;
+    let backend = CrosstermBackend::new(stdout);
+    let mut terminal = Terminal::new(backend)?;
 
-    let mut current_model = model_name.to_string();
+    // Create app state
+    let mut app = App::new(model_name.to_string(), config.temperature.default);
 
-    println!();
-    print_welcome_panel(config);
-    println!();
+    // Create event handler
+    let event_handler = EventHandler::new();
+    let event_tx = event_handler.sender();
 
-    let mut chat_active = true;
+    // Create channel for LLM responses using tokio for async compatibility
+    let (llm_tx, mut llm_rx) = tokio::sync::mpsc::unbounded_channel();
 
-    while chat_active {
-        // Send entire history to LLM
-        let start_time = Instant::now();
-        let (response, usage) = client.chat_completion_with_usage(history.clone()).await?;
-        let elapsed = start_time.elapsed();
+    // Main event loop
+    while !app.should_exit {
+        // Check for LLM response
+        if let Ok(event) = llm_rx.try_recv() {
+            match event {
+                AppEvent::LlmResponse(text, usage) => {
+                    app.add_assistant_message(text.clone(), usage.clone());
+                    app.last_tps = if let Some(ref u) = usage {
+                        u.completion_tokens as f32 / app.last_response_time
+                    } else {
+                        0.0
+                    };
 
-        // Display model name and response
-        println!();
-        print_turn_header(&current_model, config);
-        print_response_panel(&response, config);
-
-        // Show timing info for verbose mode
-        if verbose {
-            let tps = if let Some(usage) = &usage {
-                let tokens = usage.completion_tokens as f32;
-                tokens / elapsed.as_secs_f32()
-            } else {
-                0.0
-            };
-            print_stats_panel(tps, elapsed.as_secs_f32(), config);
-        }
-        println!();
-
-        // Append assistant response to history
-        history.push(ChatMessage {
-            role: "assistant".to_string(),
-            content: response,
-        });
-
-        // Prompt for user input
-        print_user_prompt(config)?;
-        let mut user_input = String::new();
-        io::stdin().read_line(&mut user_input)?;
-        let user_input = user_input.trim();
-        println!();
-
-        if user_input.starts_with('/') {
-            match handle_slash_command(
-                user_input,
-                &mut current_model,
-                &mut verbose,
-                server,
-                config,
-                &history,
-                client,
-            )
-            .await? {
-                CommandResult::Exit => {
-                    chat_active = false;
-                }
-                CommandResult::Continue => {
-                    // Continue loop without adding to history
-                }
-            }
-        } else if !user_input.is_empty() {
-            // Append user message to history
-            history.push(ChatMessage {
-                role: "user".to_string(),
-                content: user_input.to_string(),
-            });
-        }
-    }
-
-    Ok(())
-}
-
-async fn handle_slash_command(
-    input: &str,
-    current_model: &mut String,
-    verbose: &mut bool,
-    server: &mut ServerManager,
-    config: &RuboxConfig,
-    history: &[ChatMessage],
-    client: &LlmClient,
-) -> anyhow::Result<CommandResult> {
-    let parts: Vec<&str> = input[1..].split_whitespace().collect();
-    let command = parts.first().unwrap_or(&"");
-
-    match *command {
-        "" => {
-            // Just "/" - show available commands
-            show_help(config);
-            Ok(CommandResult::Continue)
-        }
-        "exit" | "quit" => {
-            save_chat(history, current_model, config)?;
-            Ok(CommandResult::Exit)
-        }
-        "verbose" => {
-            *verbose = !*verbose;
-            let status = if *verbose {
-                "✓ Verbose mode enabled".bright_green()
-            } else {
-                "✗ Verbose mode disabled".bright_red()
-            };
-            println!("{}  {}", "  ", status);
-            println!();
-            Ok(CommandResult::Continue)
-        }
-        "model" => {
-            handle_model_command(&parts[1..], current_model, server, config, client).await?;
-            Ok(CommandResult::Continue)
-        }
-        _ => {
-            println!(
-                "{}✗ Unknown command: /{}. Type / to see available commands.{}",
-                "  ".bright_red(), command, config.ui.color_reset
-            );
-            println!();
-            Ok(CommandResult::Continue)
-        }
-    }
-}
-
-fn show_help(config: &RuboxConfig) {
-    println!();
-    print_panel_header("Available Commands", config);
-    println!(
-        "{}  /exit       {}Save chat and exit{}",
-        "  ".bright_green(),
-        "─ ".bright_green(),
-        config.ui.color_reset
-    );
-    println!(
-        "{}  /verbose    {}Toggle timing info{}",
-        "  ".bright_green(),
-        "─ ".bright_green(),
-        config.ui.color_reset
-    );
-    println!(
-        "{}  /model      {}List available models{}",
-        "  ".bright_green(),
-        "─ ".bright_green(),
-        config.ui.color_reset
-    );
-    println!(
-        "{}  /model <N>  {}Switch to model N{}",
-        "  ".bright_green(),
-        "─ ".bright_green(),
-        config.ui.color_reset
-    );
-    print_panel_footer(config);
-    println!();
-}
-
-async fn handle_model_command(
-    args: &[&str],
-    current_model: &mut String,
-    server: &mut ServerManager,
-    config: &RuboxConfig,
-    _client: &LlmClient,
-) -> anyhow::Result<()> {
-    let mut models = get_available_models_list(config);
-    models.sort();
-
-    if args.is_empty() {
-        // List models
-        println!();
-        print_panel_header("Available Models", config);
-        for (i, model) in models.iter().enumerate() {
-            let current_marker = if model == current_model {
-                format!(" {}", "✓ (current)".bright_green())
-            } else {
-                String::new()
-            };
-            println!(
-                "{}  [{}] {}{}{}",
-                "  ".bright_green(),
-                (i + 1).to_string().bright_green(),
-                model.bright_green(),
-                current_marker,
-                config.ui.color_reset
-            );
-        }
-        println!(
-            "{}  Use {}{}{}{}",
-            "  ".bright_green(),
-            "/model <N>".bright_green(),
-            " to switch".bright_green(),
-            "  ",
-            config.ui.color_reset
-        );
-        print_panel_footer(config);
-        println!();
-    } else {
-        // Switch model
-        if let Ok(index) = args[0].parse::<usize>() {
-            if index > 0 && index <= models.len() {
-                let new_model = &models[index - 1];
-
-                // Stop current server
-                server.stop()?;
-
-                // Start with new model
-                server.ensure_running(config, Some(new_model)).await?;
-
-                // Update current model name
-                *current_model = new_model.clone();
-
-                println!(
-                    "{}✓ Switched to model: {}{}",
-                    "  ".bright_green(),
-                    new_model.bright_green(),
-                    config.ui.color_reset
-                );
-                println!();
-            } else {
-                println!(
-                    "{}✗ Invalid model index{}",
-                    "  ".bright_red(),
-                    config.ui.color_reset
-                );
-                println!();
-            }
-        } else {
-            println!(
-                "{}Usage: /model <number>{}",
-                "  ".bright_red(),
-                config.ui.color_reset
-            );
-            println!();
-        }
-    }
-
-    Ok(())
-}
-
-fn get_available_models_list(config: &RuboxConfig) -> Vec<String> {
-    let mut models = Vec::new();
-
-    // Add from registry
-    for name in config.models.registry.keys() {
-        models.push(name.clone());
-    }
-
-    // Add from models directory
-    if let Ok(entries) = fs::read_dir(Path::new("models")) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.extension().and_then(|s| s.to_str()) == Some("gguf") {
-                if let Some(file_name) = path.file_name().and_then(|n| n.to_str()) {
-                    let model_name = file_name.replace(".gguf", "");
-                    if !models.contains(&model_name) {
-                        models.push(model_name);
+                    // Auto-save if enabled
+                    if config.session.auto_save {
+                        let _ = app.session.save(&config.directories.sessions);
                     }
                 }
+                AppEvent::LlmError(err) => {
+                    app.set_error(err);
+                }
+                _ => {}
+            }
+        }
+
+        // Render
+        terminal.draw(|f| crate::tui::draw(f, &app))?;
+
+        // Handle events
+        if let Some(event) = event_handler.next() {
+            match event {
+                AppEvent::Key(key) => {
+                    use crossterm::event::{KeyCode, KeyModifiers};
+
+                    match key.code {
+                        KeyCode::Tab => app.toggle_drawer(),
+                        KeyCode::Esc => {
+                            if app.drawer_open {
+                                app.drawer_open = false;
+                            } else {
+                                app.should_exit = true;
+                            }
+                        }
+                        KeyCode::Enter => {
+                            if let Some(input) = app.submit_input() {
+                                if input.starts_with('/') {
+                                    handle_command(
+                                        input,
+                                        &mut app,
+                                        server,
+                                        config,
+                                        client,
+                                        event_tx.clone(),
+                                    )
+                                    .await?;
+                                } else if !input.is_empty() {
+                                    app.session.add_message("user".to_string(), input, None);
+                                    app.is_loading = true;
+
+                                    // Spawn async LLM call
+                                    let llm_tx = llm_tx.clone();
+                                    let client = client.clone();
+                                    let messages = app.session.messages.clone();
+                                    let temp = app.temperature;
+
+                                    tokio::spawn(async move {
+                                        let api_messages: Vec<ApiChatMessage> = messages
+                                            .iter()
+                                            .map(|m| ApiChatMessage {
+                                                role: m.role.clone(),
+                                                content: m.content.clone(),
+                                            })
+                                            .collect();
+
+                                        let start = Instant::now();
+                                        match client.chat_completion_with_usage(api_messages, temp).await {
+                                            Ok((response, usage)) => {
+                                                let _elapsed = start.elapsed().as_secs_f32();
+                                                let _ = llm_tx.send(AppEvent::LlmResponse(response, usage));
+                                            }
+                                            Err(e) => {
+                                                let _ = llm_tx.send(AppEvent::LlmError(e.to_string()));
+                                            }
+                                        }
+                                    });
+                                }
+                            }
+                        }
+                        KeyCode::Char(c) => {
+                            if key.modifiers.contains(KeyModifiers::CONTROL) {
+                                match c {
+                                    'c' => {
+                                        app.should_exit = true;
+                                    }
+                                    _ => {}
+                                }
+                            } else {
+                                app.handle_input_char(c);
+                            }
+                        }
+                        KeyCode::Backspace => app.handle_backspace(),
+                        KeyCode::Up => app.scroll_up(),
+                        KeyCode::Down => app.scroll_down(),
+                        _ => {}
+                    }
+                }
+                AppEvent::Tick => app.tick(),
+                AppEvent::Render => {
+                    // Render happens in the main loop
+                }
+                _ => {}
             }
         }
     }
 
-    models
-}
+    // Cleanup
+    disable_raw_mode()?;
+    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+    terminal.show_cursor()?;
 
-// ============================================================================
-// STYLING HELPERS
-// ============================================================================
-
-fn print_welcome_panel(_config: &RuboxConfig) {
-    let orange = "\x1b[38;5;208m";
-    let emerald = "\x1b[38;5;48m";
-    let reset = "\x1b[0m";
-
-    println!("{}{}{}", orange, "┌─────────────────────────────────────────────────────────┐", reset);
-    println!("{}│{} Type / for commands                                   {}│{}",
-        orange, emerald, orange, reset);
-    println!("{}{}{}", orange, "└─────────────────────────────────────────────────────────┘", reset);
-}
-
-fn print_turn_header(model_name: &str, _config: &RuboxConfig) {
-    let orange = "\x1b[38;5;208m";
-    let emerald = "\x1b[38;5;48m";
-    let reset = "\x1b[0m";
-
-    let title = format!(" Turn – {} ", model_name);
-    let padding = "─".repeat(60_usize.saturating_sub(title.len()));
-    println!("{}{}{}{}{}", orange, emerald, title, reset, padding);
-}
-
-fn print_response_panel(response: &str, _config: &RuboxConfig) {
-    let emerald = "\x1b[38;5;48m";
-    let reset = "\x1b[0m";
-
-    println!("{}┌─────────────────────────────────────────────────────────┐{}", emerald, reset);
-    for line in response.lines() {
-        println!("{}│ {:<57} │{}", emerald, line, reset);
-    }
-    println!("{}└─────────────────────────────────────────────────────────┘{}", emerald, reset);
-}
-
-fn print_stats_panel(tps: f32, elapsed_secs: f32, _config: &RuboxConfig) {
-    let emerald = "\x1b[38;5;48m";
-    let reset = "\x1b[0m";
-
-    println!();
-    println!("{}┌─ Performance Stats ──────────────────────────────────┐{}", emerald, reset);
-    println!("{}│ Throughput: {:.1} tokens/sec                              │{}",
-        emerald, tps, reset);
-    println!("{}│ Response Time: {:.2}s                                    │{}",
-        emerald, elapsed_secs, reset);
-    println!("{}└──────────────────────────────────────────────────────┘{}", emerald, reset);
-}
-
-fn print_user_prompt(config: &RuboxConfig) -> anyhow::Result<()> {
-    let orange = "\x1b[38;5;208m";
-    let emerald = "\x1b[38;5;48m";
-    let reset = "\x1b[0m";
-
-    let user_label = format!("{} Input", config.user.name);
-    let padding = "─".repeat(40_usize.saturating_sub(user_label.len()));
-    println!("{}┌─ {}{} {}┐{}",
-        orange, emerald, user_label, padding, reset);
-    print!("{}", emerald);
-    io::stdout().flush()?;
     Ok(())
 }
 
-fn print_panel_header(title: &str, _config: &RuboxConfig) {
-    let orange = "\x1b[38;5;208m";
-    let emerald = "\x1b[38;5;48m";
-    let reset = "\x1b[0m";
+async fn handle_command(
+    input: String,
+    app: &mut App,
+    server: &mut ServerManager,
+    config: &RuboxConfig,
+    client: &LlmClient,
+    _event_tx: std::sync::mpsc::Sender<AppEvent>,
+) -> anyhow::Result<()> {
+    let mut state = ChatState {
+        session: &mut app.session,
+        current_model: &mut app.current_model,
+        verbose: &mut false,
+        temperature: &mut app.temperature,
+        server,
+        client,
+        config,
+    };
 
-    let padding = "─".repeat(57_usize.saturating_sub(title.len()));
-    println!("{}┌─ {}{}{}{}{}", orange, emerald, title, orange, padding, reset);
-}
-
-fn print_panel_footer(_config: &RuboxConfig) {
-    let orange = "\x1b[38;5;208m";
-    let reset = "\x1b[0m";
-
-    println!("{}{}{}", orange, "└─────────────────────────────────────────────────────────┘", reset);
-}
-
-// ============================================================================
-
-fn save_chat(history: &[ChatMessage], model_name: &str, config: &RuboxConfig) -> anyhow::Result<()> {
-    let timestamp = Local::now().format("%Y%m%d_%H%M%S").to_string();
-    let chat_file = format!("{}/Chat_{}.md", config.directories.chat, timestamp);
-
-    // Ensure directory exists
-    fs::create_dir_all(&config.directories.chat)?;
-
-    let mut markdown = String::new();
-    let mut is_first = true;
-
-    for msg in history {
-        let speaker = if msg.role == "user" {
-            config.user.name.clone()
-        } else {
-            model_name.to_string()
-        };
-
-        if !is_first {
-            markdown.push_str("\n");
+    match app.command_registry.handle(&input, &mut state)? {
+        CommandResult::Exit => app.should_exit = true,
+        CommandResult::SwitchModel(new_model) => {
+            server.stop()?;
+            server.ensure_running(config, Some(&new_model)).await?;
+            app.current_model = new_model.clone();
         }
-
-        markdown.push_str(&format!("**{}**:\n{}\n", speaker, msg.content));
-        is_first = false;
+        CommandResult::Continue => {}
     }
-
-    fs::write(&chat_file, markdown)?;
-    println!();
-    let orange = "\x1b[38;5;208m";
-    let emerald = "\x1b[38;5;48m";
-    let reset = "\x1b[0m";
-    println!("{}{}{}", orange, "╔════════════════════════════════════════════════════╗", reset);
-    println!("{}║ {}✓ Chat saved{}  {}║{}",
-        orange, emerald, orange, " ".repeat(30), reset);
-    println!("{}║ {}{}  {}║{}",
-        orange, emerald, chat_file, " ".repeat(30_usize.saturating_sub(chat_file.len())), reset);
-    println!("{}{}{}", orange, "╚════════════════════════════════════════════════════╝", reset);
-    println!();
 
     Ok(())
 }

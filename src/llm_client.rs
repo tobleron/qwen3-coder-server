@@ -13,8 +13,9 @@ pub struct LlmClient {
     api_url: String,
     model_name: String,
     client: Client,
+    #[allow(dead_code)]
     pub context_window: u32,
-    base_temp: f32,
+    pub temperature: f32,
 }
 
 #[derive(Serialize)]
@@ -32,8 +33,8 @@ struct CompletionResponse {
 }
 
 #[derive(Deserialize, Debug, Clone)]
+#[allow(dead_code)]
 pub struct Usage {
-    #[allow(dead_code)]
     pub prompt_tokens: u32,
     pub completion_tokens: u32,
     pub total_tokens: u32,
@@ -56,21 +57,22 @@ impl LlmClient {
             model_name: config.llm.model_name.clone(),
             client: Client::new(),
             context_window: config.llm.context_window,
-            base_temp: config.llm.base_temp,
+            temperature: config.temperature.default,
         }
     }
 
+    #[allow(dead_code)]
     pub async fn chat_completion(&self, messages: Vec<ChatMessage>) -> Result<String, reqwest::Error> {
-        self.chat_completion_with_usage(messages).await.map(|(content, _)| content)
+        self.chat_completion_with_usage(messages, self.temperature).await.map(|(content, _)| content)
     }
 
-    pub async fn chat_completion_with_usage(&self, messages: Vec<ChatMessage>) -> Result<(String, Option<Usage>), reqwest::Error> {
+    pub async fn chat_completion_with_usage(&self, messages: Vec<ChatMessage>, temperature: f32) -> Result<(String, Option<Usage>), reqwest::Error> {
         let url = format!("{}/chat/completions", self.api_url);
 
         let request = CompletionRequest {
             model: self.model_name.clone(),
             messages,
-            temperature: self.base_temp,
+            temperature,
             max_tokens: 4096,
         };
 

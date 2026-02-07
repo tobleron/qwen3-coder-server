@@ -50,17 +50,44 @@ impl ServerManager {
 
         let server_path = "./third_party/llama.cpp/build/bin/llama-server";
 
-        let child = Command::new(server_path)
-            .args(&[
-                "--model", &model_path,
-                "--ctx-size", &config.llm.context_window.to_string(),
-                "--port", &port.to_string(),
-                "--n-gpu-layers", "-1",
-                "--parallel", "4",
-                "--batch-size", "512",
-                "--ubatch-size", "256",
-                "--log-disable"
-            ])
+        // Get model-specific parameters
+        let model_key = if let Some(override_name) = model_override {
+            if !override_name.contains('/') && !override_name.contains('.') {
+                override_name.to_string()
+            } else {
+                config.models.registry
+                    .iter()
+                    .find(|(_, path)| path.contains(override_name))
+                    .map(|(name, _)| name.clone())
+                    .unwrap_or_else(|| "qwen3-vl".to_string())
+            }
+        } else {
+            "qwen3-vl".to_string()
+        };
+
+        let model_params = config.get_model_params(&model_key);
+
+        // Build command with model-specific parameters
+        let mut cmd = Command::new(server_path);
+        cmd.args(&[
+            "--model", &model_path,
+            "--ctx-size", &model_params.context_window.to_string(),
+            "--port", &port.to_string(),
+            "--n-gpu-layers", &model_params.gpu_layers.to_string(),
+            "--parallel", "4",
+            "--batch-size", &model_params.batch_size.to_string(),
+            "--ubatch-size", &model_params.ubatch_size.to_string(),
+            "--log-disable"
+        ]);
+
+        // Add vision model projection if present
+        if let Some(mmproj_path) = &model_params.mmproj {
+            if std::path::Path::new(mmproj_path).exists() {
+                cmd.args(&["--mmproj", mmproj_path]);
+            }
+        }
+
+        let child = cmd
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn()?;
@@ -80,31 +107,50 @@ impl ServerManager {
             print!("\r   {}[{}] {}% - {}...{}", config.ui.color_orange, bar, percentage, current_state, config.ui.color_reset);
             let _ = io::stdout().flush();
 
-            if i > 5 && is_server_running(port).await {
-                break;
-            }
-
-            tokio::time::sleep(Duration::from_millis(150)).await;
+            tokio::time::sleep(Duration::from_millis(250)).await;
         }
 
-        // Wait for actual readiness
+        // Wait for server to be ready
+        print!("\r\x1b[K"); // Clear line
         let start = std::time::Instant::now();
+        let max_wait = 180; // 3 minutes for large models
+
         loop {
+            tokio::time::sleep(Duration::from_millis(200)).await;
+
+            // Check if server is responding on port
             if is_server_running(port).await {
-                let client = reqwest::Client::new();
-                let res = client.get(format!("http://127.0.0.1:{}/health", port)).send().await;
-                if let Ok(response) = res {
-                    if response.status().is_success() {
-                        print!("\r\x1b[K"); // Clear line
+                // Try a simple health check with generous timeout
+                let client = reqwest::Client::builder()
+                    .timeout(Duration::from_secs(10))
+                    .build()?;
+
+                match client.get(format!("http://127.0.0.1:{}/health", port)).send().await {
+                    Ok(_) => {
+                        // Server responded - wait longer for large models to fully initialize
+                        tokio::time::sleep(Duration::from_secs(5)).await;
+                        print!("\r\x1b[K");
                         println!();
                         break;
                     }
+                    Err(_) => {
+                        // Health check failed, but server is listening - might still be loading
+                        // Continue waiting
+                    }
                 }
             }
-            if start.elapsed().as_secs() > 120 {
-                return Err(anyhow::anyhow!("Timeout waiting for llama-server to load model (120s)."));
+
+            // Show progress dots
+            let elapsed = start.elapsed().as_secs();
+            if elapsed % 10 == 0 {
+                print!(".");
+                let _ = io::stdout().flush();
             }
-            tokio::time::sleep(Duration::from_millis(500)).await;
+
+            if elapsed > max_wait {
+                print!("\r\x1b[K");
+                return Err(anyhow::anyhow!("Timeout waiting for llama-server ({}s).", max_wait));
+            }
         }
 
         self.child = Some(child);

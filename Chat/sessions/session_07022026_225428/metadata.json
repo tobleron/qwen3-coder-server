@@ -1,0 +1,10 @@
+{
+  "id": "session_07022026_225428",
+  "created_at": "2026-02-07T20:54:28.867208355Z",
+  "last_modified": "2026-02-07T20:54:28.867208405Z",
+  "model_name": "qwen3-vl",
+  "temperature": 0.7,
+  "message_count": 0,
+  "total_tokens": 0,
+  "label": null
+}

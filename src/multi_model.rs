@@ -6,6 +6,7 @@ use crate::config::RuboxConfig;
 use crate::llm_client::{LlmClient, ChatMessage};
 use crate::server_manager::ServerManager;
 
+#[allow(dead_code)]
 pub async fn run_multi_model(
     selected_models: Vec<String>,
     prompt: String,
@@ -38,7 +39,7 @@ pub async fn run_multi_model(
         }];
 
         let start_time = Instant::now();
-        match client.chat_completion_with_usage(messages).await {
+        match client.chat_completion_with_usage(messages, config.temperature.default).await {
             Ok((response, usage)) => {
                 let elapsed = start_time.elapsed();
 
@@ -106,6 +107,7 @@ pub async fn run_multi_model(
     Ok(())
 }
 
+#[allow(dead_code)]
 fn sanitize_filename(name: &str) -> String {
     name.chars()
         .map(|c| match c {
@@ -115,6 +117,7 @@ fn sanitize_filename(name: &str) -> String {
         .collect()
 }
 
+#[allow(dead_code)]
 fn cleanup_old_files(config: &RuboxConfig) -> anyhow::Result<()> {
     let tmp_path = Path::new(&config.directories.tmp_md);
     if !tmp_path.exists() {

@@ -4,6 +4,10 @@ mod server_manager;
 mod chat;
 mod multi_model;
 mod ui;
+mod session;
+mod commands;
+mod prompts;
+mod tui;
 
 use clap::Parser;
 use std::fs;
@@ -63,41 +67,16 @@ async fn main() -> anyhow::Result<()> {
     // Create directories
     ensure_directories(&config)?;
 
-    // Get prompt - either from CLI, prompt_input.txt, or ask user
-    let prompt = get_or_prompt_user(&config)?;
+    // Use default model (qwen3-vl with vision support)
+    let default_model = "qwen3-vl";
 
-    // Get available models
-    let mut available_models = get_available_models(&config);
-    available_models.sort();
+    let mut server = ServerManager::new();
+    server.ensure_running(&config, Some(default_model)).await?;
 
-    // Display available models and get selection
-    ui::display_model_list(&available_models, &config);
-    let selection = ui::read_model_selection(&available_models)?;
-
-    // Remove duplicates and sort selection
-    let mut unique_selection = selection;
-    unique_selection.sort();
-    unique_selection.dedup();
-
-    // Branch: Chat mode vs Multi-model mode
-    if unique_selection.len() == 1 {
-        // Chat mode - single model
-        let selected_model = &available_models[unique_selection[0]];
-        let mut server = ServerManager::new();
-        server.ensure_running(&config, Some(selected_model)).await?;
-
-        let client = LlmClient::new(&config);
-        chat::run_chat_mode(&client, selected_model, prompt, &config, args.verbose, &mut server).await?;
-    } else {
-        // Multi-model mode
-        let selected_model_names: Vec<_> = unique_selection
-            .iter()
-            .map(|&i| available_models[i].clone())
-            .collect();
-
-        let mut server = ServerManager::new();
-        multi_model::run_multi_model(selected_model_names, prompt, &config, &mut server).await?;
-    }
+    let client = LlmClient::new(&config);
+    // Start chat with verbose ON by default (unless explicitly disabled)
+    let verbose = args.verbose || true; // Always ON for now
+    chat::run_chat_mode(&client, default_model, &config, verbose, &mut server).await?;
 
     // Cleanup
     cleanup_old_files(&config)?;
@@ -111,9 +90,13 @@ fn ensure_directories(config: &RuboxConfig) -> anyhow::Result<()> {
     fs::create_dir_all(&config.directories.tmp_md)?;
     fs::create_dir_all(&config.directories.chat)?;
     fs::create_dir_all(&config.directories.prompts)?;
+    fs::create_dir_all(&config.directories.sessions)?;
+    fs::create_dir_all(&config.directories.static_prompts)?;
+    fs::create_dir_all(&config.directories.saved_responses)?;
     Ok(())
 }
 
+#[allow(dead_code)]
 fn get_or_prompt_user(config: &RuboxConfig) -> anyhow::Result<String> {
     let prompt_file = "prompt_input.txt";
 
@@ -155,6 +138,7 @@ fn get_or_prompt_user(config: &RuboxConfig) -> anyhow::Result<String> {
     Ok(prompt.trim().to_string())
 }
 
+#[allow(dead_code)]
 fn get_available_models(config: &RuboxConfig) -> Vec<String> {
     let mut models = Vec::new();
 
