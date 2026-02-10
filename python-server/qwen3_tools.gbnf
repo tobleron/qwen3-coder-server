@@ -1,0 +1,6 @@
+root ::= (reasoning | toolcall)*
+reasoning ::= [^<]+
+toolcall ::= "<tool_call>\n<function=" name ">" params "\n</function>\n</tool_call>"
+params ::= ("\n<parameter=" name ">" value "</parameter>")+
+name ::= [a-zA-Z0-9_]+
+value ::= [^<]*

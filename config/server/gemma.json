@@ -1,0 +1,12 @@
+{
+  "name": "Google Gemma-3-4B-IT",
+  "model_path": "models/google_gemma-3-4b-it-Q8_0.gguf",
+  "args": [
+    "-ngl", "45",
+    "-c", "8192",
+    "-b", "1024",
+    "-ub", "512",
+    "--host", "0.0.0.0",
+    "--port", "8081"
+  ]
+}

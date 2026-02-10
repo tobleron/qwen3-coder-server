@@ -1,0 +1,19 @@
+{
+  "name": "Cerebras-Qwen3-Coder (25B-A3B-Q4_K_M) - Optimized 128k",
+  "model_path": "models/cerebras_Qwen3-Coder-REAP-25B-A3B-Q4_K_M.gguf",
+  "args": [
+    "-ngl", "26",
+    "-c", "131072",
+    "-fa", "on",
+    "-ctk", "q4_0",
+    "-ctv", "q4_0",
+    "--jinja",
+    "-t", "8",
+    "-b", "512",
+    "-ub", "512",
+    "--no-mmap",
+    "--mlock",
+    "--host", "0.0.0.0",
+    "--port", "8081"
+  ]
+}

@@ -1,4 +1,97 @@
-/target/
-Cargo.lock
+# Python Virtual Environment
+python-server/venv/
+venv/
+env/
+.venv/
+
+# Python Cache & Build
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Model Files (14GB+ - download separately)
+models/
+*.gguf
+*.bin
+*.safetensors
+
+# Logs
+*.log
+python_server.log
+server.log
+run_server.log
+*.log.*
+
+# Local Development
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
 .env
-prompt_input.txt
+.env.local
+
+# Chat & Session Data
+Chat/
+chat_*.md
+sessions/
+*.jsonl
+
+# Build Artifacts
+target/
+.cargo/
+
+# IDE
+.vscode
+.idea
+*.iml
+
+# OS Files
+.DS_Store
+Thumbs.db
+*.sublime-project
+*.sublime-workspace
+
+# Test Coverage
+.coverage
+htmlcov/
+.pytest_cache/
+
+# Temporary Files
+tmp/
+temp/
+*.tmp
+.tmp*
+
+# Compiled Rust (from apps/rubox)
+apps/rubox/target/
+Cargo.lock
+
+# Node modules (if any frontend)
+node_modules/
+yarn.lock
+package-lock.json
+
+# Miscellaneous
+.claude/
+config.local.json
+*.bak
+*.backup

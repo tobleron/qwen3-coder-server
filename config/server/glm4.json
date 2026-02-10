@@ -1,0 +1,18 @@
+{
+  "name": "GLM-4.7-Flash (23B-A3B-Q3_K_M) - Optimized 128k",
+  "model_path": "models/GLM-4.7-Flash-REAP-23B-A3B-Q3_K_M.gguf",
+  "args": [
+    "--alias", "glm4",
+    "-ngl", "26",
+    "-c", "131072",
+    "-fa", "on",
+    "-ctk", "q4_0",
+    "-ctv", "q4_0",
+    "--jinja",
+    "-t", "8",
+    "-b", "2048",
+    "-ub", "512",
+    "--host", "0.0.0.0",
+    "--port", "8081"
+  ]
+}

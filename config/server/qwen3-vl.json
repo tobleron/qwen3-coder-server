@@ -1,0 +1,13 @@
+{
+  "name": "Qwen3-VL-8B-Instruct (Vision)",
+  "model_path": "models/Qwen3-VL-8B-Instruct-UD-Q6_K_XL.gguf",
+  "args": [
+    "--mmproj", "models/mmproj-Qwen3VL-8B-Instruct-F16.gguf",
+    "-ngl", "35",
+    "-c", "8192",
+    "-b", "512",
+    "-ub", "256",
+    "--host", "0.0.0.0",
+    "--port", "8081"
+  ]
+}

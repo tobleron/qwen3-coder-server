@@ -1,0 +1,18 @@
+# Development & Testing Dependencies
+# Install with: pip install -r requirements-dev.txt
+
+# Testing
+requests==2.31.0
+pytest==7.4.3
+pytest-asyncio==0.21.1
+
+# Code Quality
+black==23.12.1
+flake8==6.1.0
+mypy==1.7.1
+
+# Debugging
+ipython==8.18.1
+
+# All production dependencies
+-r requirements.txt

@@ -1,0 +1,65 @@
+# Qwen3-Coder Server Python Dependencies
+# Pinned versions for reproducible environment
+
+# Core Inference Engine
+# llama-cpp-python provides Python bindings to llama.cpp
+# Version 0.3.0 with server extras includes FastAPI and Uvicorn
+llama-cpp-python[server]==0.3.0
+
+# Web Framework
+# FastAPI 0.104.1 for OpenAI-compatible API endpoints
+FastAPI==0.104.1
+
+# ASGI Server
+# Uvicorn 0.24.0 for async HTTP server
+uvicorn==0.24.0
+
+# Data Validation
+# Pydantic 2.5.0 for request/response validation
+pydantic==2.5.0
+
+# Multipart Form Handling
+# Required for FastAPI file uploads and form data
+python-multipart==0.0.6
+
+# Development & Testing (optional, for development)
+# Uncomment if running test_tool_calling.py outside of venv
+# requests==2.31.0
+# pytest==7.4.3
+
+# System Requirements (not pip-installable)
+# Python: 3.9, 3.10, 3.11, 3.12 (tested with 3.11)
+# CUDA: 11.8+ or 12.x (optional but highly recommended)
+# cuDNN: Compatible with installed CUDA
+# NVIDIA GPU: RTX 3060 (12GB) or better
+
+# Tool Versions Included in Dependencies
+# ==================================
+# llama-cpp-python==0.3.0 includes:
+#   - llama.cpp (commit: 9ac2693a302adab4b5b44fb1fef52c9e6d14a770)
+#   - CUDA support if available
+
+# Model Information
+# ================
+# Model: Cerebras-Qwen3-Coder-REAP-25B-A3B
+# Quantization: Q4_K_M (4-bit)
+# Size: 14.1 GB
+# Base: Qwen3-Coder-30B-A3B-Instruct
+# Source: https://huggingface.co/cerebras/Qwen3-Coder-REAP-25B-A3B
+
+# Installation Instructions
+# =========================
+# pip install -r requirements.txt
+#
+# Or with GPU support (if not auto-detected):
+# LLAMA_CUDA=1 pip install llama-cpp-python[server]==0.3.0
+#
+# Or CPU-only:
+# pip install llama-cpp-python[server]==0.3.0
+
+# Notes
+# =====
+# - llama-cpp-python 0.3.0 uses CUDA 12.x by default
+# - For CUDA 11.8, may need to build from source
+# - GPU detection happens automatically via nvidia-smi
+# - If CUDA not detected, falls back to CPU (much slower)
