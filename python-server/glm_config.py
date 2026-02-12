@@ -38,7 +38,7 @@ CACHE_TYPE_K = 2
 CACHE_TYPE_V = 2
 
 # Features
-USE_JINJA = True
+USE_JINJA = False
 ENABLE_TOOL_CALLING = True
 
 # Logging
