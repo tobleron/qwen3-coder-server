@@ -8,18 +8,20 @@ with automatic conversion of XML tool calls to OpenAI JSON format.
 import logging
 import sys
 import json
+from copy import deepcopy
+from pathlib import Path
 from contextlib import asynccontextmanager
-from typing import List, Optional
+from typing import List, Optional, Any
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from llama_cpp import Llama
+from llama_cpp import Llama, LlamaGrammar
 
 import config
-from tool_parser import parse_tool_calls, extract_tool_calls_and_text, has_tool_calls
+from tool_parser import parse_tool_calls, extract_tool_calls_and_text
 
 # Configure logging
 logging.basicConfig(
@@ -55,7 +57,7 @@ class ChatCompletionRequest(BaseModel):
     top_k: int = Field(default=config.TOP_K, ge=0)
     max_tokens: int = Field(default=config.MAX_TOKENS, ge=1)
     tools: Optional[List[Tool]] = None
-    tool_choice: Optional[str] = None
+    tool_choice: Optional[Any] = None
     stream: bool = False
     repeat_penalty: float = Field(default=config.REPEAT_PENALTY, ge=0)
     presence_penalty: float = Field(default=config.PRESENCE_PENALTY, ge=-2.0, le=2.0)
@@ -92,16 +94,28 @@ class HealthResponse(BaseModel):
 
 # Global model instance
 llm: Optional[Llama] = None
+tool_grammar: Optional[LlamaGrammar] = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """FastAPI lifespan context manager for startup/shutdown"""
-    global llm
+    global llm, tool_grammar
 
     logger.info("=" * 60)
     logger.info("Qwen3-Coder llama-cpp-python Server Starting")
     logger.info("=" * 60)
+
+    # Load Grammar
+    grammar_path = Path(config.ROOT_DIR) / "python-server" / "qwen3_tools.gbnf"
+    if grammar_path.exists():
+        try:
+            with open(grammar_path, "r") as f:
+                gbnf_grammar_str = f.read()
+            tool_grammar = LlamaGrammar.from_string(gbnf_grammar_str)
+            logger.info(f"✓ GBNF Grammar loaded and compiled from {grammar_path}")
+        except Exception as e:
+            logger.warning(f"Failed to load grammar: {e}")
 
     # Validate configuration
     if not config.validate_config():
@@ -192,7 +206,7 @@ async def list_models():
     }
 
 
-async def stream_chat_completion(response_generator):
+async def stream_chat_completion(response_generator, tools_list: Optional[list] = None):
     """Stream chat completion chunks in SSE format with tool call handling"""
     try:
         content_buffer = ""
@@ -267,7 +281,7 @@ async def stream_chat_completion(response_generator):
                 # Process complete tool call
                 if tool_call_detected:
                     if "</tool_call>" in content_buffer or "</function>" in content_buffer:
-                        has_calls, tool_calls = parse_tool_calls(content_buffer)
+                        has_calls, tool_calls = parse_tool_calls(content_buffer, tools_list)
                         if has_calls and tool_calls:
                             for idx, tc in enumerate(tool_calls):
                                 tool_chunk = {
@@ -322,7 +336,7 @@ async def stream_chat_completion(response_generator):
 
             # If we were in a tool call but it never closed, try to parse anyway
             if tool_call_detected:
-                has_calls, tool_calls = parse_tool_calls(content_buffer)
+                has_calls, tool_calls = parse_tool_calls(content_buffer, tools_list)
                 if has_calls and tool_calls:
                     for idx, tc in enumerate(tool_calls):
                         tool_chunk = {
@@ -438,7 +452,11 @@ def _format_tools_for_prompt(tools_list: list) -> str:
 
         prompt += "</tool>\n\n"
 
-    prompt += "When using tools, provide all REQUIRED parameters. Use XML format: <tool_call><function=name><parameter=param_name>value</parameter></function></tool_call>\n"
+    prompt += "When using tools, provide all REQUIRED parameters. Use XML format: <tool_call><function=name><parameter=param_name>value</parameter></function></tool_call>\n\n"
+    prompt += "CONVERSATION PROTOCOL:\n"
+    prompt += "- BE EXTREMELY CONCISE. Do not repeat your previous reasoning, plans, or conclusions in subsequent turns.\n"
+    prompt += "- If the history already contains your analysis, move immediately to the next action or final response.\n"
+    prompt += "- When a task is complete, provide ONE final summary and stop. Do not re-state your findings if you have already done so.\n"
     return prompt
 
 
@@ -450,7 +468,7 @@ async def chat_completions(request: ChatCompletionRequest):
 
     try:
         # Prepare messages for the model
-        messages = request.messages
+        messages = deepcopy(request.messages)
         logger.debug(f"Messages: {json.dumps(messages, indent=2)}")
         if request.tools:
             logger.debug(f"Tools: {json.dumps([t.model_dump() for t in request.tools], indent=2)}")
@@ -469,30 +487,14 @@ async def chat_completions(request: ChatCompletionRequest):
                             except json.JSONDecodeError:
                                 logger.warning(f"Failed to parse tool call arguments: {args}")
 
-        # Add tools to system message if provided
+        # Tool definitions are passed via the OpenAI tools field.
+        # Avoid injecting additional tool instructions into system messages,
+        # which can create duplicate/conflicting directives across turns.
         tools_list = None
         has_tools = False
         if request.tools and config.ENABLE_TOOL_CALLING:
             tools_list = [t.model_dump() for t in request.tools]
             has_tools = True
-
-            # Inject tool definitions into system message for better model understanding
-            tools_prompt = _format_tools_for_prompt(tools_list)
-
-            # Find or create system message
-            system_msg_idx = -1
-            for i, msg in enumerate(messages):
-                if msg.get("role") == "system":
-                    system_msg_idx = i
-                    break
-
-            if system_msg_idx >= 0:
-                # Append tool definitions to existing system message
-                messages[system_msg_idx]["content"] += "\n\n" + tools_prompt
-            else:
-                # Create new system message with tool definitions
-                messages.insert(0, {"role": "system", "content": tools_prompt})
-
 
         # Get completion from model
         logger.debug(f"Processing request with {len(messages)} messages, tools={has_tools}, stream={request.stream}")
@@ -521,14 +523,22 @@ async def chat_completions(request: ChatCompletionRequest):
             "stream": request.stream,
             "stop": stop_tokens,
         }
+        # Grammar constraints can improve format compliance but can also force
+        # pathological generations with some quantizations/templates.
+        # Use parser-based extraction for robustness by default.
+        if not has_tools:
+            gen_params["grammar"] = None
+
+        if request.tool_choice is not None:
+            gen_params["tool_choice"] = _normalize_tool_choice(request.tool_choice)
 
         response = llm.create_chat_completion(**gen_params)
 
         # Handle streaming vs non-streaming responses
         if request.stream:
-            # Return streaming response with SSE format (no tools present)
+            # Return streaming response with SSE format
             return StreamingResponse(
-                stream_chat_completion(response),
+                stream_chat_completion(response, tools_list),
                 media_type="text/event-stream",
                 headers={
                     "Cache-Control": "no-cache",
@@ -537,7 +547,7 @@ async def chat_completions(request: ChatCompletionRequest):
             )
         else:
             # Non-streaming response - process tool calls if present
-            response = _process_tool_calls(response)
+            response = _process_tool_calls(response, tools_list)
             logger.debug(f"Final response: {json.dumps(response, indent=2)}")
             return response
 
@@ -546,7 +556,15 @@ async def chat_completions(request: ChatCompletionRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-def _process_tool_calls(response: dict) -> dict:
+def _normalize_tool_choice(tool_choice: Any) -> Any:
+    if isinstance(tool_choice, str):
+        normalized = tool_choice.strip().lower()
+        if normalized in {"auto", "none", "required"}:
+            return normalized
+    return tool_choice
+
+
+def _process_tool_calls(response: dict, tools_list: Optional[list] = None) -> dict:
     """
     Post-process response to convert XML tool calls to OpenAI JSON format.
 
@@ -562,11 +580,13 @@ def _process_tool_calls(response: dict) -> dict:
 
         message = choice["message"]
         content = message.get("content", "")
+        if not isinstance(content, str):
+            content = str(content) if content is not None else ""
 
         # Check if response contains tool calls (wrapped or unwrapped)
         if "<tool_call>" in content or "<function=" in content:
             # Parse XML tool calls
-            has_calls, tool_calls = parse_tool_calls(content)
+            has_calls, tool_calls = parse_tool_calls(content, tools_list)
 
             if has_calls and tool_calls:
                 logger.info(f"Parsed {len(tool_calls)} tool calls from model output")

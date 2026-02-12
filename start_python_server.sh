@@ -71,18 +71,13 @@ echo ""
 echo -e "${ORANGE}📚 Installing dependencies...${RESET}"
 pip install -q --upgrade pip setuptools wheel 2>/dev/null || true
 
-# Check if CUDA is available (for GPU acceleration)
+# Use pinned versions for deterministic behavior across restarts.
 if command -v nvidia-smi &> /dev/null; then
-    echo -e "${GREEN}✓ NVIDIA GPU detected - installing CUDA support${RESET}"
-    # Try to install with CUDA support
-    pip install -q llama-cpp-python[server] --no-cache-dir 2>/dev/null || {
-        echo -e "${ORANGE}⚠️  GPU installation failed, trying CPU version${RESET}"
-        pip install -q -r "$PYTHON_SERVER_DIR/requirements.txt" 2>/dev/null
-    }
+    echo -e "${GREEN}✓ NVIDIA GPU detected${RESET}"
 else
-    echo -e "${ORANGE}ℹ️  No NVIDIA GPU detected - using CPU version${RESET}"
-    pip install -q -r "$PYTHON_SERVER_DIR/requirements.txt" 2>/dev/null
+    echo -e "${ORANGE}ℹ️  No NVIDIA GPU detected - CPU fallback expected${RESET}"
 fi
+pip install -q -r "$PYTHON_SERVER_DIR/requirements.txt" 2>/dev/null
 echo -e "${GREEN}✓ Dependencies installed${RESET}"
 
 echo ""

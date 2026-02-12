@@ -5,12 +5,14 @@
       "npm": "@ai-sdk/openai-compatible",
       "name": "Llama Server Local",
       "options": {
-        "baseURL": "http://192.168.1.186:8081/v1/",
+        "baseURL": "http://192.168.1.186:8081/v1",
         "apiKey": "sk-no-key-required"
       },
       "models": {
         "cerebras-qwen3": {
           "name": "Cerebras Qwen3 Coder 25B",
+          "tool_call": true,
+          "reasoning": true,
           "limit": {
             "context": 131072,
             "output": 8192
@@ -18,5 +20,10 @@
         }
       }
     }
+  },
+  "permission": {
+    "*": "allow",
+    "doom_loop": "ask",
+    "external_directory": "ask"
   }
 }

@@ -157,7 +157,8 @@ Configure OpenCode CLI to use this server:
       "models": {
         "cerebras-qwen3": {
           "name": "Cerebras Qwen3 Coder 25B",
-          "toolsEnabled": true,
+          "tool_call": true,
+          "reasoning": true,
           "limit": {
             "context": 131072,
             "output": 16384
