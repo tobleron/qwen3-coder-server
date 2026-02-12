@@ -363,6 +363,9 @@ async def stream_chat_completion(response_generator, tools_list: Optional[list] 
                         yield f"data: {json.dumps(tool_chunk)}\n\n"
                     finished_with_tool_calls = True
                     remaining_text = ""
+                elif tools_list:
+                    # Remove dangling tool XML fragments when tool parsing failed.
+                    remaining_text = _strip_dangling_tool_xml(remaining_text)
 
             # Yield any remaining plain text
             if remaining_text:
@@ -564,6 +567,58 @@ def _normalize_tool_choice(tool_choice: Any) -> Any:
     return tool_choice
 
 
+def _auto_close_tool_xml(content: str) -> str:
+    """
+    Best-effort healing for partially emitted Qwen XML tool blocks.
+    """
+    healed = content
+
+    open_param = healed.count("<parameter=")
+    close_param = healed.count("</parameter>")
+    if open_param > close_param:
+        healed += "</parameter>" * (open_param - close_param)
+
+    open_func = healed.count("<function=")
+    close_func = healed.count("</function>")
+    if open_func > close_func:
+        healed += "</function>" * (open_func - close_func)
+
+    open_tool = healed.count("<tool_call>")
+    close_tool = healed.count("</tool_call>")
+    if open_tool > close_tool:
+        healed += "</tool_call>" * (open_tool - close_tool)
+
+    return healed
+
+
+def _strip_dangling_tool_xml(content: str) -> str:
+    """
+    Remove leaked tool XML from plain assistant text when no valid tool call
+    could be extracted.
+    """
+    indices = []
+    for tag in ("<tool_call>", "<function="):
+        idx = content.find(tag)
+        if idx != -1:
+            indices.append(idx)
+    if not indices:
+        return content
+    return content[: min(indices)].strip()
+
+
+def _drop_empty_tool_calls(response: dict) -> dict:
+    for choice in response.get("choices", []):
+        message = choice.get("message")
+        if not isinstance(message, dict):
+            continue
+        tool_calls = message.get("tool_calls")
+        if isinstance(tool_calls, list) and len(tool_calls) == 0:
+            message.pop("tool_calls", None)
+            if choice.get("finish_reason") == "tool_calls":
+                choice["finish_reason"] = "stop"
+    return response
+
+
 def _process_tool_calls(response: dict, tools_list: Optional[list] = None) -> dict:
     """
     Post-process response to convert XML tool calls to OpenAI JSON format.
@@ -585,14 +640,20 @@ def _process_tool_calls(response: dict, tools_list: Optional[list] = None) -> di
 
         # Check if response contains tool calls (wrapped or unwrapped)
         if "<tool_call>" in content or "<function=" in content:
-            # Parse XML tool calls
+            # Parse XML tool calls (with healed fallback for incomplete tags)
             has_calls, tool_calls = parse_tool_calls(content, tools_list)
+            parsed_source = content
+            if not has_calls:
+                healed = _auto_close_tool_xml(content)
+                if healed != content:
+                    has_calls, tool_calls = parse_tool_calls(healed, tools_list)
+                    parsed_source = healed
 
             if has_calls and tool_calls:
                 logger.info(f"Parsed {len(tool_calls)} tool calls from model output")
 
                 # Extract text before tool calls
-                text, _ = extract_tool_calls_and_text(content)
+                text, _ = extract_tool_calls_and_text(parsed_source)
 
                 # Update message with parsed tool calls
                 # IMPORTANT: If text is empty or just whitespace, set content to None
@@ -604,8 +665,11 @@ def _process_tool_calls(response: dict, tools_list: Optional[list] = None) -> di
                 choice["finish_reason"] = "tool_calls"
 
                 logger.debug(f"Tool calls: {json.dumps(tool_calls, indent=2)}")
+            elif tools_list:
+                # Tool mode requested but no valid calls found: remove dangling XML.
+                message["content"] = _strip_dangling_tool_xml(content) or None
 
-    return response
+    return _drop_empty_tool_calls(response)
 
 
 @app.post("/v1/completions")
