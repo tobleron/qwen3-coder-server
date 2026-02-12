@@ -1,0 +1,46 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "model": "llama_local/cerebras-qwen3",
+  "small_model": "llama_local/cerebras-qwen3",
+  "provider": {
+    "llama_local": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "Qwen3 Local",
+      "options": {
+        "baseURL": "http://192.168.1.186:8081/v1",
+        "apiKey": "sk-no-key-required",
+        "timeout": 300000
+      },
+      "models": {
+        "cerebras-qwen3": {
+          "name": "Cerebras Qwen3 Coder 25B",
+          "tool_call": true,
+          "reasoning": true,
+          "limit": {
+            "context": 131072,
+            "output": 8192
+          }
+        }
+      }
+    }
+  },
+  "permission": {
+    "read": "allow",
+    "list": "allow",
+    "glob": "allow",
+    "grep": "allow",
+    "lsp": "allow",
+    "todoread": "allow",
+    "bash": "ask",
+    "edit": "ask",
+    "webfetch": "ask",
+    "task": "ask",
+    "todowrite": "ask",
+    "external_directory": "ask",
+    "doom_loop": "deny"
+  },
+  "compaction": {
+    "auto": true,
+    "prune": true
+  }
+}
