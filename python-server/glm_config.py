@@ -7,8 +7,8 @@ ROOT_DIR = Path(__file__).parent.parent
 MODEL_DIR = ROOT_DIR / "models"
 
 # Model configuration
-MODEL_NAME = "GLM-4.7-Flash (23B-A3B-Q3_K_M)"
-MODEL_PATH = MODEL_DIR / "GLM-4.7-Flash-REAP-23B-A3B-Q3_K_M.gguf"
+MODEL_NAME = "GLM-4.7-Flash (23B-A3B-Q4_K_M)"
+MODEL_PATH = MODEL_DIR / "GLM-4.7-Flash-REAP-23B-A3B-Q4_K_M.gguf"
 MODEL_ID = "glm-4.7-flash"
 
 # Server configuration

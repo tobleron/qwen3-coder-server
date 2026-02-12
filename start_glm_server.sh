@@ -19,7 +19,7 @@ LOG_FILE="$SCRIPT_DIR/python_server.log"
 
 echo ""
 echo -e "${ORANGE}════════════════════════════════════════════════════════${RESET}"
-echo -e "${ORANGE}   Qwen3-Coder llama-cpp-python Server${RESET}"
+echo -e "${ORANGE}   GLM-4.7-Flash llama-cpp-python Server${RESET}"
 echo -e "${ORANGE}════════════════════════════════════════════════════════${RESET}"
 echo ""
 
