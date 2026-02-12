@@ -24,14 +24,19 @@ echo -e "${ORANGE}════════════════════�
 echo ""
 
 # Check for existing servers
-echo -e "${ORANGE}🔍 Checking for existing GLM server instances...${RESET}"
+echo -e "${ORANGE}🔍 Checking for running Qwen or GLM instances...${RESET}"
 if pgrep -f "python.*glm_server.py" > /dev/null 2>&1; then
     echo -e "${RED}⚠️  Found running GLM server instance(s). Killing them...${RESET}"
     pkill -f "python.*glm_server.py" || true
     sleep 2
-    echo -e "${GREEN}✓ Existing instances terminated${RESET}"
+    echo -e "${GREEN}✓ Existing GLM instances terminated${RESET}"
+elif pgrep -f "python.*qwen_server.py" > /dev/null 2>&1; then
+    echo -e "${RED}⚠️  Found running Qwen server instance(s) on 8081. Stopping to free the port...${RESET}"
+    pkill -f "python.*qwen_server.py" || true
+    sleep 2
+    echo -e "${GREEN}✓ Qwen server stopped${RESET}"
 else
-    echo -e "${GREEN}✓ No running instances found${RESET}"
+    echo -e "${GREEN}✓ No conflicting instances found${RESET}"
 fi
 
 echo ""
@@ -83,7 +88,7 @@ echo ""
 
 # Check model file
 echo -e "${ORANGE}🔎 Checking model file...${RESET}"
-MODEL_PATH="$SCRIPT_DIR/models/GLM-4.7-Flash-REAP-23B-A3B-Q3_K_M.gguf"
+MODEL_PATH="$SCRIPT_DIR/models/GLM-4.7-Flash-REAP-23B-A3B-Q4_K_M.gguf"
 if [ ! -f "$MODEL_PATH" ]; then
     echo -e "${RED}✗ Model not found at: $MODEL_PATH${RESET}"
     echo -e "${RED}Please ensure the model file exists before starting the server.${RESET}"
@@ -97,7 +102,7 @@ echo ""
 # Start the server
 echo -e "${ORANGE}🚀 Starting GLM-4.7-Flash server...${RESET}"
 echo -e "${ORANGE}   Model: GLM-4.7-Flash (23B-A3B-Q3_K_M)${RESET}"
-echo -e "${ORANGE}   Port: 8082${RESET}"
+echo -e "${ORANGE}   Port: 8081${RESET}"
 echo -e "${ORANGE}   Context: 131,072 tokens${RESET}"
 echo -e "${ORANGE}   Tool Calling: ENABLED (XML→JSON conversion)${RESET}"
 echo ""
@@ -116,7 +121,7 @@ MAX_RETRIES=120
 RETRY_COUNT=0
 
 while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
-    if curl -s http://localhost:8082/health > /dev/null 2>&1; then
+    if curl -s http://localhost:8081/health > /dev/null 2>&1; then
         echo ""
         echo -e "${GREEN}✓ Server is ready!${RESET}"
         break
@@ -146,16 +151,16 @@ echo -e "📝 Log file: $LOG_FILE"
 echo -e "   View logs with: ${ORANGE}tail -f $LOG_FILE${RESET}"
 echo ""
 echo -e "🌐 API Endpoints:"
-echo -e "   Health: ${ORANGE}http://localhost:8082/health${RESET}"
-echo -e "   Chat: ${ORANGE}http://localhost:8082/v1/chat/completions${RESET}"
-echo -e "   Models: ${ORANGE}http://localhost:8082/v1/models${RESET}"
+echo -e "   Health: ${ORANGE}http://localhost:8081/health${RESET}"
+echo -e "   Chat: ${ORANGE}http://localhost:8081/v1/chat/completions${RESET}"
+echo -e "   Models: ${ORANGE}http://localhost:8081/v1/models${RESET}"
 echo ""
 echo -e "🖥️  OpenCode Configuration (Mac):"
-echo -e "   Base URL: ${ORANGE}http://$(hostname -I | awk '{print $1}'):8082/v1${RESET}"
+echo -e "   Base URL: ${ORANGE}http://$(hostname -I | awk '{print $1}'):8081/v1${RESET}"
 echo -e "   Model: ${ORANGE}glm-4.7-flash${RESET}"
 echo ""
 echo -e "🧪 Test with curl:"
-echo -e "   ${ORANGE}curl http://localhost:8082/health${RESET}"
+echo -e "   ${ORANGE}curl http://localhost:8081/health${RESET}"
 echo ""
 echo -e "✋ To stop server:"
 echo -e "   ${ORANGE}pkill -f 'python.*glm_server.py'${RESET}"

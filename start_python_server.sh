@@ -25,14 +25,19 @@ echo -e "${ORANGE}════════════════════�
 echo ""
 
 # Check for existing servers
-echo -e "${ORANGE}🔍 Checking for existing server instances...${RESET}"
+echo -e "${ORANGE}🔍 Checking for running Qwen or GLM instances...${RESET}"
 if pgrep -f "python.*qwen_server.py" > /dev/null 2>&1; then
-    echo -e "${RED}⚠️  Found running server instance(s). Killing them...${RESET}"
+    echo -e "${RED}⚠️  Found running Qwen server instance(s). Killing them...${RESET}"
     pkill -f "python.*qwen_server.py" || true
     sleep 2
-    echo -e "${GREEN}✓ Existing instances terminated${RESET}"
+    echo -e "${GREEN}✓ Existing Qwen instances terminated${RESET}"
+elif pgrep -f "python.*glm_server.py" > /dev/null 2>&1; then
+    echo -e "${RED}⚠️  Found running GLM server instance(s) on 8081. Stopping to free the port...${RESET}"
+    pkill -f "python.*glm_server.py" || true
+    sleep 2
+    echo -e "${GREEN}✓ GLM server stopped${RESET}"
 else
-    echo -e "${GREEN}✓ No running instances found${RESET}"
+    echo -e "${GREEN}✓ No conflicting instances found${RESET}"
 fi
 
 echo ""

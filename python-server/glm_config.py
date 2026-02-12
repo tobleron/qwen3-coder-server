@@ -13,7 +13,7 @@ MODEL_ID = "glm-4.7-flash"
 
 # Server configuration
 SERVER_HOST = "0.0.0.0"
-SERVER_PORT = 8082
+SERVER_PORT = 8081
 SERVER_WORKERS = 1
 
 # Inference parameters
